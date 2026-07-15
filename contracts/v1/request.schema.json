@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/request.schema.json",
+  "title": "WorkerRequest",
+  "type": "object",
+  "required": ["version", "id", "method", "params"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "$comment": "Version must be encoded as JSON integer 1; worker runtime rejects float tokens."
+    },
+    "id": { "type": "string", "minLength": 1 },
+    "method": { "const": "recognize" },
+    "params": { "$ref": "request-params.schema.json" }
+  },
+  "additionalProperties": false
+}

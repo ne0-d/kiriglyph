@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/recognize-result.schema.json",
+  "title": "RecognizeResult",
+  "type": "object",
+  "required": ["image", "full_text", "regions", "timings_ms"],
+  "properties": {
+    "image": { "$ref": "image.schema.json" },
+    "full_text": { "type": "string" },
+    "regions": {
+      "type": "array",
+      "items": { "$ref": "region.schema.json" }
+    },
+    "timings_ms": {
+      "type": "object",
+      "required": ["total"],
+      "properties": {
+        "total": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

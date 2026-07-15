@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/response-success.schema.json",
+  "title": "WorkerSuccessResponse",
+  "type": "object",
+  "required": ["version", "id", "ok", "result"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "ok": { "const": true },
+    "result": { "$ref": "recognize-result.schema.json" }
+  },
+  "additionalProperties": false
+}

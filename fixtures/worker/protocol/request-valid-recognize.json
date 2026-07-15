@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "id": "fixture-valid",
+  "method": "recognize",
+  "params": {
+    "image_path": "fixtures/worker/protocol/sample-64x32.png"
+  }
+}

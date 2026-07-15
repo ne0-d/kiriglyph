@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/error-code.schema.json",
+  "title": "WorkerErrorCode",
+  "type": "string",
+  "enum": [
+    "malformed_json",
+    "invalid_envelope",
+    "unsupported_method",
+    "image_unreadable",
+    "internal_error"
+  ]
+}

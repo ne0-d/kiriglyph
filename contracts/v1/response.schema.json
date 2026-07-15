@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/response.schema.json",
+  "title": "WorkerResponse",
+  "oneOf": [
+    { "$ref": "response-success.schema.json" },
+    { "$ref": "response-error.schema.json" }
+  ]
+}

@@ -1,0 +1,36 @@
+# Project-local toolchains and environments
+.tools/
+.venv/
+worker/.venv/
+
+# Flutter and Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.cursor/rules/
+*.iml
+*.swp
+*~
+.DS_Store
+
+# Local configuration, logs, and secrets
+.env
+.env.*
+!.env.example
+*.log

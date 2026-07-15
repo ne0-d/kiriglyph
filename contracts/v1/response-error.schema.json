@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/response-error.schema.json",
+  "title": "WorkerErrorResponse",
+  "type": "object",
+  "required": ["version", "id", "ok", "error"],
+  "properties": {
+    "version": { "const": 1 },
+    "id": {
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+    },
+    "ok": { "const": false },
+    "error": { "$ref": "protocol-error.schema.json" }
+  },
+  "additionalProperties": false
+}

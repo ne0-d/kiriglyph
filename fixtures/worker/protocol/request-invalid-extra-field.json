@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "fixture-invalid-extra-field",
+  "method": "recognize",
+  "params": {
+    "image_path": "fixtures/worker/protocol/sample-64x32.png"
+  },
+  "extra": "not allowed"
+}

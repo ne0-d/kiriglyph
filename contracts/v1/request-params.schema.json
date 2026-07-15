@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/request-params.schema.json",
+  "title": "RecognizeParams",
+  "type": "object",
+  "required": ["image_path"],
+  "properties": {
+    "image_path": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

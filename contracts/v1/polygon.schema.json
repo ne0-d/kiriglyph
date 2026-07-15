@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/polygon.schema.json",
+  "title": "SourceImagePolygon",
+  "type": "array",
+  "minItems": 4,
+  "items": { "$ref": "point.schema.json" }
+}

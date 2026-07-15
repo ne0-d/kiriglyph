@@ -1,0 +1,16 @@
+{
+  "line_text": "Mock recognized text",
+  "region_id": "line-1",
+  "region_level": "line",
+  "reading_order": 0,
+  "confidence": 1.0,
+  "timings_ms": {
+    "total": 0
+  },
+  "line_polygon_for_64x32": [
+    [8, 8],
+    [56, 8],
+    [56, 24],
+    [8, 24]
+  ]
+}
