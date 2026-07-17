@@ -8,6 +8,8 @@
     "invalid_envelope",
     "unsupported_method",
     "image_unreadable",
+    "no_text",
+    "ocr_failed",
     "internal_error"
   ]
 }

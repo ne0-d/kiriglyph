@@ -8,11 +8,13 @@ long-lived Python worker over versioned NDJSON.
 
 - Open a PNG, JPEG, GIF, BMP, or WebP image.
 - Send its path to one local Python worker process.
-- Render a deterministic mock OCR line over the image.
+- Recognize text locally with RapidOCR and ONNX Runtime CPU.
+- Render ordered OCR polygons over the image.
 - Show the recognized text as selectable Flutter text.
 
-The mock engine proves the complete app-to-worker path. Real local OCR is the
-next ticket; this version does not use an LLM or send image data over a network.
+The OCR models are pinned and bundled by the Python dependency setup. Recognition
+does not use an LLM, upload image data, or download models while processing an
+image.
 
 ## Ubuntu 24.04 setup
 

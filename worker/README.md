@@ -2,7 +2,9 @@
 
 Long-lived Python 3.12 process that speaks versioned NDJSON on stdin/stdout.
 
-Runtime dependencies: Python standard library only.
+Recognition uses pinned RapidOCR and ONNX Runtime CPU dependencies. RapidOCR's
+default detector, classifier, and recognizer models are contained in its wheel;
+OCR requests do not download models.
 
 ## Protocol (v1)
 
@@ -15,7 +17,7 @@ Request:
 Success:
 
 ```json
-{"version":1,"id":"<id>","ok":true,"result":{"image":{"width":64,"height":32},"full_text":"Mock recognized text","regions":[{"id":"line-1","level":"line","text":"Mock recognized text","polygon":[[8,8],[56,8],[56,24],[8,24]],"confidence":1.0,"reading_order":0}],"timings_ms":{"total":0}}}
+{"version":1,"id":"<id>","ok":true,"result":{"image":{"width":1000,"height":260},"full_text":"HELLO","regions":[{"id":"line-1","level":"line","text":"HELLO","polygon":[[38,57],[387,57],[387,181],[38,181]],"confidence":0.99,"reading_order":0}],"timings_ms":{"total":1200}}}
 ```
 
 Error:

@@ -4,7 +4,11 @@ version = "0.0.0"
 description = "Long-lived NDJSON OCR worker for Ubuntu Live Text V0"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "onnxruntime==1.31.0",
+    "pillow==12.3.0",
+    "rapidocr==3.10.0",
+]
 
 [project.scripts]
 live-text-worker = "worker.__main__:main"

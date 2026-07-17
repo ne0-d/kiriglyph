@@ -4,11 +4,13 @@ import sys
 
 from worker.protocol import (
     MAX_NDJSON_LINE_BYTES,
+    ErrorCode,
     encode_response,
     error_response,
     handle_recognize,
     parse_request_line,
 )
+from worker.rapidocr_engine import OcrEngine, RapidOcrEngine
 
 
 def _log_diagnostic(message: str) -> None:
@@ -22,14 +24,22 @@ def _drain_oversized_line() -> None:
             return
 
 
-def process_request_line(raw_line: bytes) -> dict:
+def process_request_line(raw_line: bytes, engine: OcrEngine) -> dict:
     if len(raw_line) > MAX_NDJSON_LINE_BYTES:
-        return error_response(None, "malformed_json", "request line exceeds maximum length")
+        return error_response(
+            None,
+            ErrorCode.MALFORMED_JSON,
+            "request line exceeds maximum length",
+        )
 
     try:
         line = raw_line.rstrip(b"\n").decode("utf-8")
     except UnicodeDecodeError:
-        return error_response(None, "malformed_json", "request line is not valid UTF-8 JSON")
+        return error_response(
+            None,
+            ErrorCode.MALFORMED_JSON,
+            "request line is not valid UTF-8 JSON",
+        )
 
     request, error = parse_request_line(line)
     if error is not None:
@@ -37,12 +47,13 @@ def process_request_line(raw_line: bytes) -> dict:
 
     assert request is not None
     try:
-        return handle_recognize(request)
-    except Exception:
-        return error_response(request.id, "internal_error", "request failed")
+        return handle_recognize(request, engine)
+    except Exception:  # noqa: BLE001 - final process boundary maps unknown failures.
+        return error_response(request.id, ErrorCode.INTERNAL_ERROR, "request failed")
 
 
 def run_loop() -> None:
+    engine = RapidOcrEngine()
     while True:
         raw_line = sys.stdin.buffer.readline(MAX_NDJSON_LINE_BYTES + 1)
         if raw_line == b"":
@@ -53,7 +64,7 @@ def run_loop() -> None:
             _drain_oversized_line()
 
         _log_diagnostic("request received")
-        response = process_request_line(raw_line)
+        response = process_request_line(raw_line, engine)
         if response.get("ok") is True:
             _log_diagnostic("request finished")
         else:

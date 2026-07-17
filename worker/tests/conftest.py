@@ -15,7 +15,7 @@ REPO_ROOT = WORKER_ROOT.parent
 CONTRACTS_V1 = REPO_ROOT / "contracts" / "v1"
 FIXTURES = REPO_ROOT / "fixtures" / "worker" / "protocol"
 SAMPLE_IMAGE = FIXTURES / "sample-64x32.png"
-MOCK_EXPECTATIONS = FIXTURES / "mock-expectations.json"
+REAL_OCR_IMAGE = REPO_ROOT / "fixtures" / "worker" / "images" / "hello-ubuntu.png"
 
 
 def load_schema(name: str) -> dict:
@@ -59,11 +59,6 @@ def schema_registry(schema_store: dict[str, dict]) -> Registry:
 
 def validate(instance: object, schema: dict, registry: Registry) -> None:
     Draft202012Validator(schema, registry=registry).validate(instance)
-
-
-@pytest.fixture(scope="session")
-def mock_expectations() -> dict:
-    return json.loads(MOCK_EXPECTATIONS.read_text(encoding="utf-8"))
 
 
 def worker_env() -> dict[str, str]:

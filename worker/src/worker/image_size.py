@@ -4,6 +4,8 @@ import struct
 from pathlib import Path
 from typing import BinaryIO
 
+from PIL import Image
+
 
 class ImageSizeError(Exception):
     pass
@@ -35,6 +37,19 @@ def read_image_size(path: Path) -> tuple[int, int]:
         if header.startswith(b"\xff\xd8"):
             image.seek(0)
             return _jpeg_size(image)
+
+        if header.startswith(b"BM") or (
+            header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+        ):
+            image.seek(0)
+            try:
+                with Image.open(image) as decoded:
+                    width, height = decoded.size
+            except (OSError, ValueError) as error:
+                raise ImageSizeError("invalid image header") from error
+            if width < 1 or height < 1:
+                raise ImageSizeError("invalid image dimensions")
+            return width, height
 
     raise ImageSizeError("unsupported or unreadable image format")
 

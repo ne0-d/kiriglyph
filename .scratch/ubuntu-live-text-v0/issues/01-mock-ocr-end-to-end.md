@@ -4,11 +4,17 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Flutter and Python dependencies are reproducibly locked and developer bootstrap/run instructions work on Ubuntu 24.04.
-- [ ] Flutter launches one long-lived Python worker and performs a versioned request/response exchange with request IDs.
-- [ ] Protocol envelopes and the OCR result are validated against shared JSON schemas.
-- [ ] Selecting a fixture image produces a visible mock text region and synchronized selectable text.
-- [ ] Worker diagnostics use stderr; stdout contains protocol messages only.
-- [ ] Contract, Flutter state, and basic widget tests cover the successful vertical slice.
+- [x] Flutter and Python dependencies are reproducibly locked and developer bootstrap/run instructions work on Ubuntu 24.04.
+- [x] Flutter launches one long-lived Python worker and performs a versioned request/response exchange with request IDs.
+- [x] Protocol envelopes and the OCR result are validated against shared JSON schemas.
+- [x] Selecting a fixture image produces a visible mock text region and synchronized selectable text.
+- [x] Worker diagnostics use stderr; stdout contains protocol messages only.
+- [x] Contract, Flutter state, and basic widget tests cover the successful vertical slice.
+
+## Answer
+
+The mock vertical slice is implemented and user-verified on Ubuntu. Flutter opens
+an image, communicates with one local Python worker through the versioned NDJSON
+contract, and renders a schema-valid region with synchronized selectable text.

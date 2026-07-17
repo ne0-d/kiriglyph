@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from jsonschema.exceptions import ValidationError
-
 from conftest import FIXTURES, SAMPLE_IMAGE, validate
-from worker.protocol import parse_request_line
-
+from jsonschema.exceptions import ValidationError
+from worker.protocol import ErrorCode, parse_request_line
 
 REQUEST_FIXTURES = [
     ("request-valid-recognize.json", True),
@@ -35,14 +33,89 @@ def test_request_fixtures_match_request_schema(
 @pytest.mark.parametrize(
     ("name", "payload", "schema_valid", "runtime_code"),
     [
-        ("valid", {"version": 1, "id": "ok", "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE)}}, True, None),
-        ("boolean version", {"version": True, "id": "bad-bool", "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE)}}, False, "invalid_envelope"),
-        ("float version", {"version": 1.5, "id": "bad-float", "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE)}}, False, "invalid_envelope"),
-        ("missing id", {"version": 1, "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE)}}, False, "invalid_envelope"),
-        ("non-object params", {"version": 1, "id": "bad-params", "method": "recognize", "params": []}, False, "invalid_envelope"),
-        ("extra request key", {"version": 1, "id": "bad-extra", "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE)}, "extra": None}, False, "invalid_envelope"),
-        ("extra params key", {"version": 1, "id": "bad-extra-param", "method": "recognize", "params": {"image_path": str(SAMPLE_IMAGE), "extra": None}}, False, "invalid_envelope"),
-        ("unsupported method", {"version": 1, "id": "bad-method", "method": "shutdown", "params": {"image_path": str(SAMPLE_IMAGE)}}, False, "unsupported_method"),
+        (
+            "valid",
+            {
+                "version": 1,
+                "id": "ok",
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+            },
+            True,
+            None,
+        ),
+        (
+            "boolean version",
+            {
+                "version": True,
+                "id": "bad-bool",
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+            },
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "float version",
+            {
+                "version": 1.5,
+                "id": "bad-float",
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+            },
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "missing id",
+            {
+                "version": 1,
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+            },
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "non-object params",
+            {"version": 1, "id": "bad-params", "method": "recognize", "params": []},
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "extra request key",
+            {
+                "version": 1,
+                "id": "bad-extra",
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+                "extra": None,
+            },
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "extra params key",
+            {
+                "version": 1,
+                "id": "bad-extra-param",
+                "method": "recognize",
+                "params": {"image_path": str(SAMPLE_IMAGE), "extra": None},
+            },
+            False,
+            "invalid_envelope",
+        ),
+        (
+            "unsupported method",
+            {
+                "version": 1,
+                "id": "bad-method",
+                "method": "shutdown",
+                "params": {"image_path": str(SAMPLE_IMAGE)},
+            },
+            False,
+            "unsupported_method",
+        ),
     ],
 )
 def test_request_schema_and_runtime_validation_agree(
@@ -71,7 +144,9 @@ def test_request_schema_and_runtime_validation_agree(
         assert error["error"]["code"] == runtime_code
 
 
-def test_success_schema_allows_empty_ocr_result(schema_store: dict[str, dict], schema_registry):
+def test_success_schema_allows_empty_ocr_result(
+    schema_store: dict[str, dict], schema_registry
+):
     response = {
         "version": 1,
         "id": "empty-result",
@@ -85,6 +160,12 @@ def test_success_schema_allows_empty_ocr_result(schema_store: dict[str, dict], s
     }
 
     validate(response, schema_store["response_success"], schema_registry)
+
+
+def test_runtime_error_codes_match_shared_schema(schema_store: dict[str, dict]):
+    assert {code.value for code in ErrorCode} == set(
+        schema_store["error-code.schema.json"]["enum"]
+    )
 
 
 def test_runtime_rejects_integral_float_version():
