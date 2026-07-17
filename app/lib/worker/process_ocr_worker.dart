@@ -22,52 +22,131 @@ class WorkerLaunchConfig {
 }
 
 class ProcessOcrWorker implements OcrWorker {
-  ProcessOcrWorker(this._launchConfig);
+  ProcessOcrWorker(
+    this._launchConfig, {
+    this.requestTimeout = const Duration(seconds: 30),
+    this.shutdownTimeout = const Duration(seconds: 2),
+    this.forceKillTimeout = const Duration(milliseconds: 500),
+    this.onDiagnostic,
+  });
 
   final WorkerLaunchConfig _launchConfig;
+  final Duration requestTimeout;
+  final Duration shutdownTimeout;
+  final Duration forceKillTimeout;
+  final void Function(String message)? onDiagnostic;
   int _requestCounter = 0;
+  int _generation = 0;
+  bool _closed = false;
 
   Process? _process;
+  Future<void>? _starting;
+  Future<void> _writeTail = Future<void>.value();
   StreamSubscription<String>? _stdoutSubscription;
+  StreamSubscription<List<int>>? _stderrSubscription;
   final _pending =
       <String, Completer<({OcrResult? result, WorkerError? error})>>{};
 
   Future<void> _ensureStarted() async {
+    if (_closed) {
+      throw const WorkerProcessError(
+        kind: WorkerFailureKind.closed,
+        message: 'worker is closed',
+      );
+    }
     if (_process != null) {
       return;
     }
 
-    final process = await Process.start(
-      _launchConfig.executable,
-      _launchConfig.arguments,
-      workingDirectory: _launchConfig.workingDirectory,
-      environment: _launchConfig.environment,
-    );
+    final existingStart = _starting;
+    if (existingStart != null) {
+      return existingStart;
+    }
+
+    final start = _startProcess(_generation);
+    _starting = start;
+    try {
+      await start;
+    } finally {
+      if (identical(_starting, start)) {
+        _starting = null;
+      }
+    }
+  }
+
+  Future<void> _startProcess(int generation) async {
+    final Process process;
+    try {
+      process = await Process.start(
+        _launchConfig.executable,
+        _launchConfig.arguments,
+        workingDirectory: _launchConfig.workingDirectory,
+        environment: _launchConfig.environment,
+      );
+    } on ProcessException {
+      throw const WorkerProcessError(
+        kind: WorkerFailureKind.startup,
+        message: 'worker process could not be started',
+      );
+    }
+    if (_closed || generation != _generation) {
+      process.kill();
+      throw WorkerProcessError(
+        kind: _closed ? WorkerFailureKind.closed : WorkerFailureKind.cancelled,
+        message: _closed
+            ? 'worker is closed'
+            : 'worker recognition was cancelled',
+      );
+    }
     _process = process;
 
     _stdoutSubscription = process.stdout
         .transform(const Utf8Decoder())
         .transform(const LineSplitter())
         .listen(
-          _dispatchLine,
+          (line) => _dispatchLine(process, line),
           onError: (Object _) {
-            _failAll(ProtocolError('worker stdout stream failed'));
+            _terminateForFailure(
+              process,
+              const WorkerProcessError(
+                kind: WorkerFailureKind.exited,
+                message: 'worker stdout stream failed',
+              ),
+            );
           },
           onDone: () {
-            if (identical(_process, process)) {
-              _process = null;
-              _stdoutSubscription = null;
+            if (!identical(_process, process)) {
+              return;
             }
-            _failAll(ProtocolError('worker process exited unexpectedly'));
+            _process = null;
+            _stdoutSubscription = null;
+            _failAll(
+              const WorkerProcessError(
+                kind: WorkerFailureKind.exited,
+                message: 'worker process exited unexpectedly',
+              ),
+            );
           },
         );
 
-    process.stderr.listen((_) {
-      // Diagnostics only; never mixed into protocol parsing.
-    });
+    _stderrSubscription = process.stderr.listen(
+      (_) => onDiagnostic?.call('worker diagnostic received'),
+    );
   }
 
-  void _dispatchLine(String line) {
+  Future<void> _writeRequest(Process process, List<int> bytes) {
+    final write = _writeTail.then((_) async {
+      if (!identical(_process, process)) {
+        throw ProtocolError('worker process changed before request was sent');
+      }
+      process.stdin.add(bytes);
+      await process.stdin.flush();
+    });
+    _writeTail = write.then<void>((_) {}, onError: (_, _) {});
+    return write;
+  }
+
+  void _dispatchLine(Process process, String line) {
     String? responseId;
     try {
       final decoded = jsonDecode(line);
@@ -75,11 +154,28 @@ class ProcessOcrWorker implements OcrWorker {
         responseId = decoded['id'] as String;
       }
     } catch (_) {
-      _failAll(ProtocolError('worker sent malformed JSON'));
+      _terminateForFailure(
+        process,
+        const WorkerProcessError(
+          kind: WorkerFailureKind.malformedResponse,
+          message: 'worker sent malformed JSON',
+        ),
+      );
       return;
     }
 
-    if (responseId == null || !_pending.containsKey(responseId)) {
+    if (responseId == null) {
+      _terminateForFailure(
+        process,
+        const WorkerProcessError(
+          kind: WorkerFailureKind.malformedResponse,
+          message: 'worker response did not include a request ID',
+        ),
+      );
+      return;
+    }
+
+    if (!_pending.containsKey(responseId)) {
       return;
     }
 
@@ -88,7 +184,19 @@ class ProcessOcrWorker implements OcrWorker {
       final parsed = parseResponseLine(line, expectedId: responseId);
       completer.complete(parsed);
     } on ProtocolError catch (error) {
-      completer.completeError(error);
+      completer.completeError(
+        WorkerProcessError(
+          kind: WorkerFailureKind.malformedResponse,
+          message: error.message,
+        ),
+      );
+      _terminateForFailure(
+        process,
+        const WorkerProcessError(
+          kind: WorkerFailureKind.malformedResponse,
+          message: 'worker sent a malformed response',
+        ),
+      );
     }
   }
 
@@ -101,6 +209,18 @@ class ProcessOcrWorker implements OcrWorker {
     _pending.clear();
   }
 
+  void _terminateForFailure(Process process, Object error) {
+    if (!identical(_process, process)) {
+      return;
+    }
+    _process = null;
+    _stdoutSubscription = null;
+    unawaited(_stderrSubscription?.cancel());
+    _stderrSubscription = null;
+    _failAll(error);
+    process.kill();
+  }
+
   @override
   Future<OcrResult> recognize(String imagePath) async {
     await _ensureStarted();
@@ -111,10 +231,20 @@ class ProcessOcrWorker implements OcrWorker {
 
     final requestLine =
         '${encodeRecognizeRequest(id: id, imagePath: imagePath)}\n';
-    _process!.stdin.add(utf8.encode(requestLine));
-    await _process!.stdin.flush();
-
-    final response = await completer.future;
+    final process = _process!;
+    await _writeRequest(process, utf8.encode(requestLine));
+    final response = await completer.future.timeout(
+      requestTimeout,
+      onTimeout: () {
+        _pending.remove(id);
+        final error = WorkerProcessError(
+          kind: WorkerFailureKind.timeout,
+          message: 'worker recognition timed out',
+        );
+        _terminateForFailure(process, error);
+        throw error;
+      },
+    );
     final workerError = response.error;
     if (workerError != null) {
       throw workerError;
@@ -127,25 +257,95 @@ class ProcessOcrWorker implements OcrWorker {
   }
 
   @override
-  Future<void> close() async {
-    await _stdoutSubscription?.cancel();
+  Future<void> cancelActive() async {
+    _generation++;
+    _failAll(
+      const WorkerProcessError(
+        kind: WorkerFailureKind.cancelled,
+        message: 'worker recognition was cancelled',
+      ),
+    );
+    try {
+      await _starting;
+    } catch (_) {
+      // A cancelled or failed startup has no active process to terminate.
+    }
+    final process = _process;
+    _process = null;
+    final stdoutSubscription = _stdoutSubscription;
+    final stderrSubscription = _stderrSubscription;
     _stdoutSubscription = null;
-    _failAll(ProtocolError('worker closed'));
+    _stderrSubscription = null;
+    if (process != null) {
+      process.kill();
+      if (!await _waitForExit(process, forceKillTimeout)) {
+        process.kill(ProcessSignal.sigkill);
+        await _waitForExit(process, forceKillTimeout);
+      }
+    }
+    await stdoutSubscription?.cancel();
+    await stderrSubscription?.cancel();
+  }
+
+  @override
+  Future<void> restart() async {
+    if (_closed) {
+      throw const WorkerProcessError(
+        kind: WorkerFailureKind.closed,
+        message: 'worker is closed',
+      );
+    }
+    await cancelActive();
+    await _ensureStarted();
+  }
+
+  @override
+  Future<void> close() async {
+    if (_closed) {
+      return;
+    }
+    _closed = true;
+    _generation++;
+    try {
+      await _starting;
+    } catch (_) {
+      // A failed startup has no child process to close.
+    }
+
+    _failAll(
+      const WorkerProcessError(
+        kind: WorkerFailureKind.closed,
+        message: 'worker closed',
+      ),
+    );
     final process = _process;
     _process = null;
     if (process != null) {
-      process.stdin.close();
-      if (_pending.isEmpty) {
-        await process.exitCode.timeout(
-          const Duration(seconds: 2),
-          onTimeout: () {
-            process.kill();
-            return -1;
-          },
-        );
-      } else {
-        process.kill();
+      try {
+        await process.stdin.close();
+      } on Object {
+        // The worker may already have closed its stdin.
       }
+      if (!await _waitForExit(process, shutdownTimeout)) {
+        process.kill();
+        if (!await _waitForExit(process, forceKillTimeout)) {
+          process.kill(ProcessSignal.sigkill);
+          await _waitForExit(process, forceKillTimeout);
+        }
+      }
+    }
+    await _stdoutSubscription?.cancel();
+    await _stderrSubscription?.cancel();
+    _stdoutSubscription = null;
+    _stderrSubscription = null;
+  }
+
+  Future<bool> _waitForExit(Process process, Duration timeout) async {
+    try {
+      await process.exitCode.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      return false;
     }
   }
 }

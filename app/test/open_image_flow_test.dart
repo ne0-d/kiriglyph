@@ -86,10 +86,16 @@ class _RecordingWorker implements OcrWorker {
   final OcrResult result;
 
   @override
+  Future<void> cancelActive() async {}
+
+  @override
   Future<OcrResult> recognize(String imagePath) async {
     onRecognize();
     return result;
   }
+
+  @override
+  Future<void> restart() async {}
 
   @override
   Future<void> close() async {}

@@ -16,3 +16,22 @@ class WorkerError implements Exception {
   @override
   String toString() => 'WorkerError($code): $message';
 }
+
+enum WorkerFailureKind {
+  startup,
+  exited,
+  timeout,
+  malformedResponse,
+  cancelled,
+  closed,
+}
+
+class WorkerProcessError implements Exception {
+  const WorkerProcessError({required this.kind, required this.message});
+
+  final WorkerFailureKind kind;
+  final String message;
+
+  @override
+  String toString() => 'WorkerProcessError(${kind.name}): $message';
+}
