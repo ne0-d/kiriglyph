@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://image-segment-ai.local/contracts/v1/character-range.schema.json",
+  "title": "CharacterRange",
+  "type": "object",
+  "required": [
+    "start",
+    "end",
+    "text",
+    "polygon",
+    "geometry_kind",
+    "confidence"
+  ],
+  "properties": {
+    "start": { "type": "integer", "minimum": 0 },
+    "end": { "type": "integer", "minimum": 1 },
+    "text": { "type": "string", "minLength": 1 },
+    "polygon": { "$ref": "polygon.schema.json" },
+    "geometry_kind": {
+      "enum": ["derived_ctc_polygon", "interpolated_gap"]
+    },
+    "confidence": {
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 1 },
+        { "type": "null" }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

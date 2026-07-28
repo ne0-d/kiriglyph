@@ -3,10 +3,12 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ubuntu_live_text/ocr/ocr_result.dart';
 import 'package:ubuntu_live_text/protocol/protocol_error.dart';
+import 'package:ubuntu_live_text/selection/region_selection_provider.dart';
 import 'package:ubuntu_live_text/worker/ocr_worker.dart';
 
 import 'support/workspace_harness.dart';
@@ -49,6 +51,10 @@ Future<void> _shiftTapRegion(WidgetTester tester, String id) async {
 
 Future<String?> _clipboardText() async =>
     (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+
+String _selectedText(WidgetTester tester) => ProviderScope.containerOf(
+  tester.element(find.byKey(const Key('capture-canvas-focus'))),
+).read(regionSelectionProvider).selectedText;
 
 Future<void> _openSample(
   WidgetTester tester, {
@@ -427,6 +433,195 @@ void main() {
   });
 
   group('selection by pointer', () {
+    testWidgets('clicking a character selects and copies only that character', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+
+      await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.pump();
+
+      expect(await _clipboardText(), 'b');
+      expect(find.byKey(const Key('ocr-character-line-l1')), findsOneWidget);
+    });
+
+    testWidgets(
+      'single, double, and triple click select character, word, line',
+      (tester) async {
+        await pumpApp(tester, worker: FakeWorker([wordCharacterResult()]));
+        await openImage(tester);
+        final point = _imagePoint(tester, 0.475, 0.20);
+
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(_selectedText(tester), 't');
+
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(_selectedText(tester), 'two');
+
+        await tester.tapAt(point);
+        await tester.pump();
+        expect(_selectedText(tester), 'one,,  two!');
+      },
+    );
+
+    testWidgets('character hit testing stays aligned after zoom', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+      await tester.tap(find.byKey(const Key('zoom-in')));
+      await tester.pump();
+
+      await tester.tapAt(_imagePoint(tester, 0.35, 0.20));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.pump();
+
+      expect(await _clipboardText(), 'c');
+    });
+
+    testWidgets('empty space inside a line box clears character selection', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([sparseCharacterResult()]));
+      await openImage(tester);
+      await tester.tapAt(_imagePoint(tester, 0.15, 0.20));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<ButtonStyleButton>(find.byKey(const Key('copy-selection')))
+            .onPressed,
+        isNotNull,
+      );
+
+      await tester.tapAt(_imagePoint(tester, 0.30, 0.20));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<ButtonStyleButton>(find.byKey(const Key('copy-selection')))
+            .onPressed,
+        isNull,
+      );
+    });
+
+    testWidgets('dragging empty image space pans while zoomed', (tester) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+      await tester.tap(find.byKey(const Key('zoom-in')));
+      await tester.tap(find.byKey(const Key('zoom-in')));
+      await tester.pump();
+
+      final before = tester.getRect(find.byKey(const Key('capture-image')));
+      final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
+      await tester.dragFrom(
+        Offset(canvas.center.dx, canvas.bottom - 80),
+        const Offset(-100, -80),
+      );
+      await tester.pump();
+      final after = tester.getRect(find.byKey(const Key('capture-image')));
+
+      expect(after.topLeft, isNot(before.topLeft));
+    });
+
+    testWidgets('dragging across characters copies the exact partial range', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+
+      final start = _imagePoint(tester, 0.225, 0.20);
+      final end = _imagePoint(tester, 0.475, 0.20);
+      await tester.dragFrom(start, end - start);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.pump();
+
+      expect(await _clipboardText(), 'bcd');
+    });
+
+    testWidgets('backward dragging spans lines in reading order', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([multilineCharacterResult()]));
+      await openImage(tester);
+
+      final start = _imagePoint(tester, 0.275, 0.50);
+      final end = _imagePoint(tester, 0.125, 0.20);
+      await tester.dragFrom(start, end - start);
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.pump();
+
+      expect(await _clipboardText(), 'ab\ncd');
+    });
+
+    testWidgets('arrow keys replace and extend the character selection', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+      await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
+      await tester.pump();
+
+      final canvasFocus = tester
+          .widget<Focus>(find.byKey(const Key('capture-canvas-focus')))
+          .focusNode!;
+      expect(canvasFocus.hasFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(await _clipboardText(), 'cd');
+      expect(find.text('Copied 1 line'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('Ctrl+A then Ctrl+C copies all recognized text', (
+      tester,
+    ) async {
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+      await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
+      await tester.pump();
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(await _clipboardText(), 'abcd');
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('character lines expose text-selection semantics', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
+      await openImage(tester);
+
+      final node = tester.getSemantics(
+        find.byKey(const Key('ocr-character-line-l1')),
+      );
+      expect(node.label, contains('abcd'));
+      expect(node.label, contains('Character selection available'));
+      expect(node.flagsCollection.isButton, isTrue);
+      handle.dispose();
+    });
+
     testWidgets('clicking a region selects it and its text row together', (
       tester,
     ) async {

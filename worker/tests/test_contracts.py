@@ -162,6 +162,93 @@ def test_success_schema_allows_empty_ocr_result(
     validate(response, schema_store["response_success"], schema_registry)
 
 
+def test_region_schema_accepts_engine_neutral_character_ranges(
+    schema_store: dict[str, dict],
+    schema_registry,
+):
+    region = {
+        "id": "line-1",
+        "level": "line",
+        "text": "a b",
+        "polygon": [[0, 0], [30, 0], [30, 10], [0, 10]],
+        "confidence": 1,
+        "reading_order": 0,
+        "ranges": [
+            {
+                "start": 0,
+                "end": 1,
+                "text": "a",
+                "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]],
+                "geometry_kind": "derived_ctc_polygon",
+                "confidence": 0.9,
+            },
+            {
+                "start": 1,
+                "end": 2,
+                "text": " ",
+                "polygon": [[10, 0], [20, 0], [20, 10], [10, 10]],
+                "geometry_kind": "interpolated_gap",
+                "confidence": None,
+            },
+            {
+                "start": 2,
+                "end": 3,
+                "text": "b",
+                "polygon": [[20, 0], [30, 0], [30, 10], [20, 10]],
+                "geometry_kind": "derived_ctc_polygon",
+                "confidence": 0.8,
+            },
+        ],
+    }
+
+    validate(region, schema_store["region.schema.json"], schema_registry)
+
+
+@pytest.mark.parametrize(
+    "range_patch",
+    [
+        {"geometry_kind": "estimated"},
+        {"confidence": 2},
+        {
+            "polygon": [
+                [0, 0],
+                [10, 0],
+                [10, 10],
+                [0, 10],
+                [0, 0],
+            ]
+        },
+        {"extra": True},
+    ],
+)
+def test_region_schema_rejects_invalid_character_ranges(
+    range_patch: dict,
+    schema_store: dict[str, dict],
+    schema_registry,
+):
+    character_range = {
+        "start": 0,
+        "end": 1,
+        "text": "a",
+        "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]],
+        "geometry_kind": "derived_ctc_polygon",
+        "confidence": 1,
+        **range_patch,
+    }
+    region = {
+        "id": "line-1",
+        "level": "line",
+        "text": "a",
+        "polygon": [[0, 0], [10, 0], [10, 10], [0, 10]],
+        "confidence": 1,
+        "reading_order": 0,
+        "ranges": [character_range],
+    }
+
+    with pytest.raises(ValidationError):
+        validate(region, schema_store["region.schema.json"], schema_registry)
+
+
 def test_runtime_error_codes_match_shared_schema(schema_store: dict[str, dict]):
     assert {code.value for code in ErrorCode} == set(
         schema_store["error-code.schema.json"]["enum"]

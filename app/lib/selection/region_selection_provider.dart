@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:ubuntu_live_text/capture/capture_session.dart';
 import 'package:ubuntu_live_text/selection/region_selection.dart';
+import 'package:ubuntu_live_text/selection/text_word_boundary.dart';
 
 /// Line selection for the active capture session.
 ///
@@ -20,6 +21,33 @@ class RegionSelectionController extends Notifier<RegionSelection> {
   void select(String id) => state = state.select(id);
 
   void extendTo(String id) => state = state.extendTo(id);
+
+  void selectCharacter(String regionId, int offset) =>
+      state = state.selectCharacter(regionId, offset);
+
+  void selectWord(String regionId, int offset) {
+    final index = state.indexOf(regionId);
+    if (index == null) {
+      return;
+    }
+    final boundary = textWordBoundary(state.regions[index].text, offset);
+    if (boundary != null) {
+      state = state.selectRange(regionId, boundary.start, boundary.end);
+    }
+  }
+
+  void startAt(TextPosition position) => state = state.startAt(position);
+
+  void extendToPosition(TextPosition position) =>
+      state = state.extendToPosition(position);
+
+  void selectAll() => state = state.selectAll();
+
+  void moveHorizontal(int direction, {required bool extend}) =>
+      state = state.moveHorizontal(direction, extend: extend);
+
+  void moveVertical(int direction, {required bool extend}) =>
+      state = state.moveVertical(direction, extend: extend);
 
   void clear() => state = state.clear();
 
@@ -60,4 +88,16 @@ class HoveredRegionController extends Notifier<String?> {
 final hoveredRegionProvider =
     NotifierProvider<HoveredRegionController, String?>(
       HoveredRegionController.new,
+    );
+
+class CopySelectionRequestController extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}
+
+final copySelectionRequestProvider =
+    NotifierProvider<CopySelectionRequestController, int>(
+      CopySelectionRequestController.new,
     );

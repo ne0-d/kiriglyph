@@ -41,7 +41,14 @@ OcrResult parseSuccessResult(Object? raw) {
 
   final regions = <TextRegion>[];
   for (var i = 0; i < regionsRaw.length; i++) {
-    regions.add(_parseRegion(regionsRaw[i], index: i));
+    regions.add(
+      _parseRegion(
+        regionsRaw[i],
+        index: i,
+        imageWidth: width,
+        imageHeight: height,
+      ),
+    );
   }
 
   final timingsRaw = raw['timings_ms'];
@@ -71,7 +78,12 @@ OcrResult parseSuccessResult(Object? raw) {
   );
 }
 
-TextRegion _parseRegion(Object? raw, {required int index}) {
+TextRegion _parseRegion(
+  Object? raw, {
+  required int index,
+  required int imageWidth,
+  required int imageHeight,
+}) {
   if (raw is! Map) {
     throw ProtocolError('result.regions[$index] must be an object');
   }
@@ -91,25 +103,12 @@ TextRegion _parseRegion(Object? raw, {required int index}) {
     throw ProtocolError('result.regions[$index].text must be a string');
   }
 
-  final polygonRaw = raw['polygon'];
-  if (polygonRaw is! List || polygonRaw.length != 4) {
-    throw ProtocolError('result.regions[$index].polygon must have four points');
-  }
-  final polygon = <Point>[];
-  for (var p = 0; p < 4; p++) {
-    final point = polygonRaw[p];
-    if (point is! List || point.length != 2) {
-      throw ProtocolError('result.regions[$index].polygon[$p] must be [x, y]');
-    }
-    final x = point[0];
-    final y = point[1];
-    if (x is! num || y is! num) {
-      throw ProtocolError(
-        'result.regions[$index].polygon[$p] coordinates must be numbers',
-      );
-    }
-    polygon.add(Point(x: x.toDouble(), y: y.toDouble()));
-  }
+  final polygon = _parsePolygon(
+    raw['polygon'],
+    field: 'result.regions[$index].polygon',
+    imageWidth: imageWidth,
+    imageHeight: imageHeight,
+  );
 
   final confidence = raw['confidence'];
   if (confidence is! num || confidence < 0 || confidence > 1) {
@@ -125,6 +124,34 @@ TextRegion _parseRegion(Object? raw, {required int index}) {
     );
   }
 
+  final rangesRaw = raw['ranges'];
+  if (rangesRaw is! List) {
+    throw ProtocolError('result.regions[$index].ranges must be an array');
+  }
+  final ranges = <TextCharacterRange>[];
+  var nextStart = 0;
+  for (var rangeIndex = 0; rangeIndex < rangesRaw.length; rangeIndex++) {
+    final range = _parseCharacterRange(
+      rangesRaw[rangeIndex],
+      field: 'result.regions[$index].ranges[$rangeIndex]',
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
+    );
+    if (range.start != nextStart) {
+      throw ProtocolError('result.regions[$index].ranges must be contiguous');
+    }
+    nextStart = range.end;
+    ranges.add(range);
+  }
+  if (ranges.isNotEmpty) {
+    if (nextStart != text.runes.length ||
+        ranges.map((range) => range.text).join() != text) {
+      throw ProtocolError(
+        'result.regions[$index].ranges must reconstruct line text',
+      );
+    }
+  }
+
   _rejectExtraKeys(raw, {
     'id',
     'level',
@@ -132,6 +159,7 @@ TextRegion _parseRegion(Object? raw, {required int index}) {
     'polygon',
     'confidence',
     'reading_order',
+    'ranges',
   }, 'result.regions[$index]');
 
   return TextRegion(
@@ -141,7 +169,108 @@ TextRegion _parseRegion(Object? raw, {required int index}) {
     polygon: polygon,
     confidence: confidence.toDouble(),
     readingOrder: readingOrder,
+    ranges: List.unmodifiable(ranges),
   );
+}
+
+TextCharacterRange _parseCharacterRange(
+  Object? raw, {
+  required String field,
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  if (raw is! Map) {
+    throw ProtocolError('$field must be an object');
+  }
+  final start = raw['start'];
+  final end = raw['end'];
+  final text = raw['text'];
+  if (start is! int || start < 0 || end is! int || end <= start) {
+    throw ProtocolError('$field offsets must be an increasing integer range');
+  }
+  if (text is! String || text.isEmpty || text.runes.length != end - start) {
+    throw ProtocolError('$field text must match its code-point offsets');
+  }
+  final geometryKind = switch (raw['geometry_kind']) {
+    'derived_ctc_polygon' => CharacterGeometryKind.derivedCtcPolygon,
+    'interpolated_gap' => CharacterGeometryKind.interpolatedGap,
+    _ => throw ProtocolError('$field geometry_kind is unsupported'),
+  };
+  final confidenceRaw = raw['confidence'];
+  if (confidenceRaw != null &&
+      (confidenceRaw is! num ||
+          !confidenceRaw.isFinite ||
+          confidenceRaw < 0 ||
+          confidenceRaw > 1)) {
+    throw ProtocolError('$field confidence must be null or between 0 and 1');
+  }
+  final polygon = _parsePolygon(
+    raw['polygon'],
+    field: '$field.polygon',
+    imageWidth: imageWidth,
+    imageHeight: imageHeight,
+  );
+  _rejectExtraKeys(raw, {
+    'start',
+    'end',
+    'text',
+    'polygon',
+    'geometry_kind',
+    'confidence',
+  }, field);
+  return TextCharacterRange(
+    start: start,
+    end: end,
+    text: text,
+    polygon: polygon,
+    geometryKind: geometryKind,
+    confidence: confidenceRaw?.toDouble(),
+  );
+}
+
+List<Point> _parsePolygon(
+  Object? raw, {
+  required String field,
+  required int imageWidth,
+  required int imageHeight,
+}) {
+  if (raw is! List || raw.length != 4) {
+    throw ProtocolError('$field must have four points');
+  }
+  final polygon = <Point>[];
+  for (var index = 0; index < 4; index++) {
+    final point = raw[index];
+    if (point is! List || point.length != 2) {
+      throw ProtocolError('$field[$index] must be [x, y]');
+    }
+    final x = point[0];
+    final y = point[1];
+    if (x is! num || y is! num) {
+      throw ProtocolError('$field[$index] coordinates must be numbers');
+    }
+    final dx = x.toDouble();
+    final dy = y.toDouble();
+    if (!dx.isFinite ||
+        !dy.isFinite ||
+        dx < 0 ||
+        dx > imageWidth ||
+        dy < 0 ||
+        dy > imageHeight) {
+      throw ProtocolError('$field[$index] must be inside the source image');
+    }
+    polygon.add(Point(x: dx, y: dy));
+  }
+  final area =
+      List.generate(4, (index) {
+        final next = (index + 1) % 4;
+        return polygon[index].x * polygon[next].y -
+            polygon[next].x * polygon[index].y;
+      }).fold<double>(0, (sum, cross) => sum + cross) /
+      2;
+  if (area.abs() < 1) {
+    throw ProtocolError('$field must have usable area');
+  }
+  return List.unmodifiable(polygon);
 }
 
 ({OcrResult? result, WorkerError? error}) parseResponseLine(

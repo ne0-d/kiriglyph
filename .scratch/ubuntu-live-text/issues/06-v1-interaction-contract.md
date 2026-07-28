@@ -17,15 +17,22 @@ V1 targets Ubuntu 24.04 GNOME Wayland and requires Wayland for capture and relea
 - Start a capture session from a user-configured GNOME shortcut or the in-app **Capture Text** action.
 - Use GNOME's native selector for area, window, or screen capture. Open image files through the system file chooser.
 - Treat a paused video as visible screen content; V1 does not inspect or decode video files.
-- Present the returned capture in a lightweight Flutter result surface with spatial word and line regions.
-- Provide synchronized standard selectable text for character-level selection and assistive technologies.
+- Present the returned capture in a lightweight result surface with exact
+  character-range geometry and validated line fallbacks.
+- Support direct character dragging on the image and provide synchronized
+  standard selectable text for assistive technologies.
+- Provide an explicit Subject mode where a user can click or draw around a
+  visible subject, refine the local segmentation mask, and copy or save a
+  transparent PNG.
 - Delegate multi-monitor and fractional-scale capture selection to GNOME in V1.
 
 ### Actions and keyboard behavior
 
-- Support Copy Selection, Copy All, Retry, Cancel, and Dismiss.
+- Support Copy Selection, Copy All, Copy Image, Save PNG, Retry, Cancel, and
+  Dismiss.
 - Tab and Shift+Tab navigate controls; arrows move among OCR regions; Shift+arrows extend region selection; Enter copies; Ctrl+A selects all; Ctrl+C copies; Escape dismisses.
-- Data detectors, offline translation, continuous video recognition, and persistent history are outside the first alpha.
+- Semantic object naming, data detectors, offline translation, continuous video
+  recognition, and persistent history are outside the first alpha.
 
 ### Progress, errors, accessibility, and privacy
 
@@ -33,4 +40,7 @@ V1 targets Ubuntu 24.04 GNOME Wayland and requires Wayland for capture and relea
 - Treat user cancellation as a normal outcome.
 - Distinguish portal unavailable or denied, capture failure, no text, OCR timeout or failure, and clipboard failure.
 - Expose ordered text through standard GTK semantics for Orca, announce status without automatically speaking recognized content, and restore focus when the result surface closes.
-- Keep pixels and recognized text only for the active capture session. Do not retain history, emit telemetry containing capture activity, show recognized text in notifications, or capture in the background.
+- Keep pixels, recognized text, character geometry, image embeddings, and masks
+  only for the active capture session. Do not retain history, emit telemetry
+  containing capture activity, show recognized content in notifications, or
+  capture in the background.

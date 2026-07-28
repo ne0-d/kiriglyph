@@ -28,6 +28,7 @@ def schema_store() -> dict[str, dict]:
     names = [
         "point.schema.json",
         "polygon.schema.json",
+        "character-range.schema.json",
         "request-params.schema.json",
         "request.schema.json",
         "image.schema.json",

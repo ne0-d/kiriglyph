@@ -4,5 +4,6 @@
   "title": "SourceImagePolygon",
   "type": "array",
   "minItems": 4,
+  "maxItems": 4,
   "items": { "$ref": "point.schema.json" }
 }

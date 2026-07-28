@@ -60,13 +60,30 @@ class FittedImageGeometry {
     destination.top + point.y * scale,
   );
 
+  /// Maps a canvas point back into source-image coordinates.
+  Point unmapPoint(Offset point) {
+    if (scale == 0) {
+      return const Point(x: 0, y: 0);
+    }
+    return Point(
+      x: (point.dx - destination.left) / scale,
+      y: (point.dy - destination.top) / scale,
+    );
+  }
+
   /// The region's polygon in canvas coordinates.
   List<Offset> regionPolygon(TextRegion region) =>
       region.polygon.map(mapPoint).toList(growable: false);
 
+  List<Offset> rangePolygon(TextCharacterRange range) =>
+      range.polygon.map(mapPoint).toList(growable: false);
+
   /// Axis-aligned bounds of the region as it is drawn.
-  Rect regionRect(TextRegion region) {
-    final points = regionPolygon(region);
+  Rect regionRect(TextRegion region) => _bounds(regionPolygon(region));
+
+  Rect rangeRect(TextCharacterRange range) => _bounds(rangePolygon(range));
+
+  Rect _bounds(List<Offset> points) {
     if (points.isEmpty) {
       return Rect.zero;
     }

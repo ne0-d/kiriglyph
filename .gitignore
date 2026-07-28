@@ -30,6 +30,7 @@ htmlcov/
 .DS_Store
 
 # Local configuration, logs, and secrets
+.local/
 .env
 .env.*
 !.env.example

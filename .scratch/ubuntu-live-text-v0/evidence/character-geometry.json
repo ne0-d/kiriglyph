@@ -1,0 +1,138 @@
+{
+  "decision": "go",
+  "decision_scope": "Use RapidOCR-derived CTC polygons as approximate hit geometry for exact ranges in recognized text.",
+  "diagnostic_categories": [
+    "perspective",
+    "rotated"
+  ],
+  "failures": [],
+  "gates_passed": true,
+  "limitations": [
+    "Polygons are recognizer-derived interaction geometry, not observed glyph outlines.",
+    "Repeated source whitespace can be normalized by OCR.",
+    "The spike uses Unicode code-point offsets; Flutter interoperability needs an explicit grapheme policy.",
+    "Rotation and perspective are diagnostic results and do not contribute to the horizontal pass decision."
+  ],
+  "policy": {
+    "diagnostic_categories": [
+      "perspective",
+      "rotated"
+    ],
+    "minimum_center_hit_rate": 0.95,
+    "minimum_token_coverage": 0.95,
+    "provenance_and_bounds_must_be_valid": true,
+    "required_horizontal_categories": [
+      "code",
+      "proportional",
+      "punctuation-url",
+      "small-text"
+    ],
+    "whitespace_policy_must_be_consistent": true
+  },
+  "provenance_and_bounds_valid": true,
+  "results": [
+    {
+      "baseline_direction_error_degrees": 0.14505229647457185,
+      "category": "code",
+      "center_hit_rate": 1.0,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.27142605691605237,
+      "ordering_violations": 0,
+      "recognized_text": "result = parse(value_2)",
+      "source_text": "result = parse(value_2)",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    },
+    {
+      "baseline_direction_error_degrees": 0.3636899613793274,
+      "category": "perspective",
+      "center_hit_rate": 1.0,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.24595306510492154,
+      "ordering_violations": 0,
+      "recognized_text": "Perspective text",
+      "source_text": "Perspective text",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    },
+    {
+      "baseline_direction_error_degrees": 0.15611890385842916,
+      "category": "proportional",
+      "center_hit_rate": 0.95,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.30175196101263785,
+      "ordering_violations": 0,
+      "recognized_text": "Variable width: iii WWW",
+      "source_text": "Variable width: iii WWW",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    },
+    {
+      "baseline_direction_error_degrees": 0.0,
+      "category": "punctuation-url",
+      "center_hit_rate": 0.9629629629629629,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.23302346836481894,
+      "ordering_violations": 0,
+      "recognized_text": "https://example.org/a?q=1.5",
+      "source_text": "https://example.org/a?q=1.5",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    },
+    {
+      "baseline_direction_error_degrees": 0.2893701634395577,
+      "category": "repeated-spaces",
+      "center_hit_rate": 0.5555555555555556,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.34521866161509357,
+      "ordering_violations": 0,
+      "recognized_text": "alpha beta",
+      "source_text": "alpha   beta",
+      "token_coverage": 0.5555555555555556,
+      "transcript_matches": false
+    },
+    {
+      "baseline_direction_error_degrees": 0.1113615656810124,
+      "category": "rotated",
+      "center_hit_rate": 1.0,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.3129361363232358,
+      "ordering_violations": 0,
+      "recognized_text": "Rotated text",
+      "source_text": "Rotated text",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    },
+    {
+      "baseline_direction_error_degrees": 1.2060487792199448,
+      "category": "small-text",
+      "center_hit_rate": 1.0,
+      "invalid_lines": 0,
+      "invalid_reasons": [],
+      "mean_normalized_corner_error": 0.45365867039390834,
+      "ordering_violations": 0,
+      "recognized_text": "Small text 123",
+      "source_text": "Small text 123",
+      "token_coverage": 1.0,
+      "transcript_matches": true
+    }
+  ],
+  "runtime": {
+    "onnxruntime": "1.31.0",
+    "python": "3.12.3",
+    "rapidocr": "3.10.0"
+  },
+  "whitespace_policy": {
+    "consistent": true,
+    "note": "RapidOCR collapses repeated source spaces. Selection ranges remain exact for the recognized transcript, not the source pixels.",
+    "range_unit": "Unicode code point",
+    "source_spacing_preserved": false,
+    "visual_geometry": "interpolated_gap"
+  }
+}

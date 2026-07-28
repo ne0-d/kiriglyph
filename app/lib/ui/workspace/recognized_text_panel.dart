@@ -58,7 +58,12 @@ class _RecognizedTextPanelState extends ConsumerState<RecognizedTextPanel> {
   Widget build(BuildContext context) {
     final selection = ref.watch(regionSelectionProvider);
     final lineCount = selection.regions.length;
-    final selectedCount = selection.selectedRegions.length;
+    ref.listen(copySelectionRequestProvider, (previous, next) {
+      final current = ref.read(regionSelectionProvider);
+      if (next != previous && current.hasSelection) {
+        _copy(current.selectedText, 'Copied ${_selectionAmount(current)}');
+      }
+    });
 
     return Column(
       key: const Key('text-panel'),
@@ -79,11 +84,11 @@ class _RecognizedTextPanelState extends ConsumerState<RecognizedTextPanel> {
             children: [
               FilledButton.icon(
                 key: const Key('copy-selection'),
-                onPressed: selectedCount == 0
+                onPressed: !selection.hasSelection
                     ? null
                     : () => _copy(
                         selection.selectedText,
-                        'Copied ${_lines(selectedCount)}',
+                        'Copied ${_selectionAmount(selection)}',
                       ),
                 icon: const Icon(Icons.content_copy_rounded, size: 16),
                 label: const Text('Copy selection'),
@@ -134,6 +139,15 @@ class _RecognizedTextPanelState extends ConsumerState<RecognizedTextPanel> {
   }
 
   static String _lines(int count) => count == 1 ? '1 line' : '$count lines';
+
+  static String _selectionAmount(RegionSelection selection) {
+    final lines = selection.selectedRegions.length;
+    if (lines > 0) {
+      return _lines(lines);
+    }
+    final characters = selection.selectedCharacterCount;
+    return characters == 1 ? '1 character' : '$characters characters';
+  }
 }
 
 class _PanelHeading extends StatelessWidget {

@@ -3,14 +3,18 @@
   "$id": "https://image-segment-ai.local/contracts/v1/region.schema.json",
   "title": "TextRegion",
   "type": "object",
-  "required": ["id", "level", "text", "polygon", "confidence", "reading_order"],
+  "required": ["id", "level", "text", "polygon", "confidence", "reading_order", "ranges"],
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "level": { "const": "line" },
     "text": { "type": "string" },
     "polygon": { "$ref": "polygon.schema.json" },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-    "reading_order": { "type": "integer", "minimum": 0 }
+    "reading_order": { "type": "integer", "minimum": 0 },
+    "ranges": {
+      "type": "array",
+      "items": { "$ref": "character-range.schema.json" }
+    }
   },
   "additionalProperties": false
 }

@@ -19,8 +19,9 @@ TextRegion box(
   double l,
   double t,
   double r,
-  double b,
-) => TextRegion(
+  double b, {
+  List<TextCharacterRange> ranges = const [],
+}) => TextRegion(
   id: id,
   level: TextRegionLevel.line,
   text: text,
@@ -32,6 +33,143 @@ TextRegion box(
   ],
   confidence: 1,
   readingOrder: order,
+  ranges: ranges,
+);
+
+TextCharacterRange character(
+  int index,
+  String text,
+  double l,
+  double t,
+  double r,
+  double b,
+) => TextCharacterRange(
+  start: index,
+  end: index + 1,
+  text: text,
+  polygon: [
+    Point(x: l, y: t),
+    Point(x: r, y: t),
+    Point(x: r, y: b),
+    Point(x: l, y: b),
+  ],
+  geometryKind: text.trim().isEmpty
+      ? CharacterGeometryKind.interpolatedGap
+      : CharacterGeometryKind.derivedCtcPolygon,
+  confidence: text.trim().isEmpty ? null : 1,
+);
+
+OcrResult characterSampleResult() => OcrResult(
+  imageWidth: kImageWidth,
+  imageHeight: kImageHeight,
+  fullText: 'abcd',
+  regions: [
+    box(
+      'l1',
+      'abcd',
+      0,
+      20,
+      10,
+      100,
+      30,
+      ranges: [
+        character(0, 'a', 20, 10, 40, 30),
+        character(1, 'b', 40, 10, 60, 30),
+        character(2, 'c', 60, 10, 80, 30),
+        character(3, 'd', 80, 10, 100, 30),
+      ],
+    ),
+  ],
+  timingsMs: const TimingsMs(total: 10),
+);
+
+OcrResult wordCharacterResult() {
+  const text = 'one,,  two!';
+  return OcrResult(
+    imageWidth: kImageWidth,
+    imageHeight: kImageHeight,
+    fullText: text,
+    regions: [
+      box(
+        'l1',
+        text,
+        0,
+        20,
+        10,
+        130,
+        30,
+        ranges: [
+          for (var index = 0; index < text.length; index++)
+            character(
+              index,
+              text[index],
+              20 + index * 10,
+              10,
+              30 + index * 10,
+              30,
+            ),
+        ],
+      ),
+    ],
+    timingsMs: const TimingsMs(total: 10),
+  );
+}
+
+OcrResult multilineCharacterResult() => OcrResult(
+  imageWidth: kImageWidth,
+  imageHeight: kImageHeight,
+  fullText: 'ab\ncd',
+  regions: [
+    box(
+      'l1',
+      'ab',
+      0,
+      20,
+      10,
+      60,
+      30,
+      ranges: [
+        character(0, 'a', 20, 10, 40, 30),
+        character(1, 'b', 40, 10, 60, 30),
+      ],
+    ),
+    box(
+      'l2',
+      'cd',
+      1,
+      20,
+      40,
+      60,
+      60,
+      ranges: [
+        character(0, 'c', 20, 40, 40, 60),
+        character(1, 'd', 40, 40, 60, 60),
+      ],
+    ),
+  ],
+  timingsMs: const TimingsMs(total: 10),
+);
+
+OcrResult sparseCharacterResult() => OcrResult(
+  imageWidth: kImageWidth,
+  imageHeight: kImageHeight,
+  fullText: 'ab',
+  regions: [
+    box(
+      'l1',
+      'ab',
+      0,
+      20,
+      10,
+      100,
+      30,
+      ranges: [
+        character(0, 'a', 20, 10, 40, 30),
+        character(1, 'b', 80, 10, 100, 30),
+      ],
+    ),
+  ],
+  timingsMs: const TimingsMs(total: 10),
 );
 
 /// Three well separated lines plus one tiny speck, supplied out of reading

@@ -20,6 +20,20 @@ TextRegion _box(String id, double l, double t, double r, double b) =>
       readingOrder: 0,
     );
 
+const _range = TextCharacterRange(
+  start: 0,
+  end: 1,
+  text: 'r',
+  polygon: [
+    Point(x: 50, y: 10),
+    Point(x: 60, y: 10),
+    Point(x: 60, y: 30),
+    Point(x: 50, y: 30),
+  ],
+  geometryKind: CharacterGeometryKind.derivedCtcPolygon,
+  confidence: 1,
+);
+
 void main() {
   group('contain fit', () {
     test('a wide image is letterboxed vertically and centred', () {
@@ -101,6 +115,16 @@ void main() {
         geometry.regionRect(_box('r', 0, 0, 200, 100)),
         geometry.destination,
       );
+    });
+
+    test('character ranges map and invert through the fitted image', () {
+      expect(
+        geometry.rangeRect(_range),
+        const Rect.fromLTRB(100, 120, 120, 160),
+      );
+      final source = geometry.unmapPoint(const Offset(110, 140));
+      expect(source.x, 55);
+      expect(source.y, 20);
     });
 
     test('the mapping follows the image when the bounds are resized', () {

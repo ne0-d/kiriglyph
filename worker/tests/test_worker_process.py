@@ -37,6 +37,7 @@ class _StubEngine:
                     "polygon": [[0, 0], [width, 0], [width, height], [0, height]],
                     "confidence": 1,
                     "reading_order": 0,
+                    "ranges": [],
                 }
             ],
             "timings_ms": {"total": 0},

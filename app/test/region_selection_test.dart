@@ -15,6 +15,24 @@ TextRegion _region(String id, String text, int order) => TextRegion(
   ],
   confidence: 1,
   readingOrder: order,
+  ranges: [
+    for (var index = 0; index < text.runes.length; index++)
+      TextCharacterRange(
+        start: index,
+        end: index + 1,
+        text: String.fromCharCode(text.runes.elementAt(index)),
+        polygon: [
+          Point(x: index * 10, y: 0),
+          Point(x: index * 10 + 10, y: 0),
+          Point(x: index * 10 + 10, y: 10),
+          Point(x: index * 10, y: 10),
+        ],
+        geometryKind: text.runes.elementAt(index) == 32
+            ? CharacterGeometryKind.interpolatedGap
+            : CharacterGeometryKind.derivedCtcPolygon,
+        confidence: text.runes.elementAt(index) == 32 ? null : 1,
+      ),
+  ],
 );
 
 /// Supplied deliberately out of reading order.
@@ -170,5 +188,79 @@ void main() {
     base.extendTo('d');
 
     expect(_selectedIds(base), ['a']);
+  });
+
+  group('character ranges', () {
+    test('selects a partial word and punctuation exactly', () {
+      final selection = RegionSelection([_region('line', 'value_2()', 0)])
+          .selectCharacter('line', 5)
+          .extendToPosition(const TextPosition(regionId: 'line', offset: 9));
+
+      expect(selection.selectedText, '_2()');
+      expect(selection.isRangeSelected('line', 5, 6), isTrue);
+      expect(selection.isRangeSelected('line', 4, 5), isFalse);
+    });
+
+    test('backward multiline selection is copied in reading order', () {
+      final selection =
+          RegionSelection([_region('a', 'Alpha', 0), _region('b', 'Beta', 1)])
+              .startAt(const TextPosition(regionId: 'b', offset: 4))
+              .extendToPosition(const TextPosition(regionId: 'a', offset: 2));
+
+      expect(selection.selectedText, 'pha\nBeta');
+      expect(selection.selectedRegions.map((region) => region.id), ['a', 'b']);
+    });
+
+    test('recognized whitespace remains part of the selected text', () {
+      final selection = RegionSelection([_region('line', 'a b', 0)])
+          .selectCharacter('line', 0)
+          .extendToPosition(const TextPosition(regionId: 'line', offset: 3));
+
+      expect(selection.selectedText, 'a b');
+      expect(selection.isRangeSelected('line', 1, 2), isTrue);
+    });
+
+    test('arrow movement replaces or extends by character', () {
+      final selected = RegionSelection([
+        _region('a', 'Alpha', 0),
+        _region('b', 'Beta', 1),
+      ]).selectCharacter('a', 1);
+
+      expect(selected.moveHorizontal(1, extend: false).selectedText, 'p');
+      expect(selected.moveHorizontal(1, extend: true).selectedText, 'lp');
+      expect(selected.moveVertical(1, extend: false).selectedText, 't');
+    });
+
+    test('Shift+arrow treats the newline as one boundary step', () {
+      final selected = RegionSelection([
+        _region('a', 'One', 0),
+        _region('b', 'Two', 1),
+      ]).selectCharacter('a', 2);
+
+      final newline = selected.moveHorizontal(1, extend: true);
+      expect(newline.selectedText, 'e\n');
+      expect(newline.moveHorizontal(1, extend: true).selectedText, 'e\nT');
+    });
+
+    test('select all includes every line and newline', () {
+      final selection = RegionSelection([
+        _region('a', 'One', 0),
+        _region('b', 'Two', 1),
+      ]).selectAll();
+
+      expect(selection.selectedText, 'One\nTwo');
+    });
+
+    test('a line-break-only range remains a copyable selection', () {
+      final selection =
+          RegionSelection([_region('a', 'One', 0), _region('b', 'Two', 1)])
+              .startAt(const TextPosition(regionId: 'a', offset: 3))
+              .extendToPosition(const TextPosition(regionId: 'b', offset: 0));
+
+      expect(selection.hasSelection, isTrue);
+      expect(selection.selectedText, '\n');
+      expect(selection.selectedCharacterCount, 1);
+      expect(selection.selectedRegions, isEmpty);
+    });
   });
 }

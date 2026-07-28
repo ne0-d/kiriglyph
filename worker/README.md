@@ -17,8 +17,13 @@ Request:
 Success:
 
 ```json
-{"version":1,"id":"<id>","ok":true,"result":{"image":{"width":1000,"height":260},"full_text":"HELLO","regions":[{"id":"line-1","level":"line","text":"HELLO","polygon":[[38,57],[387,57],[387,181],[38,181]],"confidence":0.99,"reading_order":0}],"timings_ms":{"total":1200}}}
+{"version":1,"id":"<id>","ok":true,"result":{"image":{"width":1000,"height":260},"full_text":"HELLO","regions":[{"id":"line-1","level":"line","text":"HELLO","polygon":[[38,57],[387,57],[387,181],[38,181]],"confidence":0.99,"reading_order":0,"ranges":[]}],"timings_ms":{"total":1200}}}
 ```
+
+Each line has a `ranges` array. Valid character geometry uses contiguous
+half-open code-point offsets and provenance `derived_ctc_polygon`; logical
+spaces use `interpolated_gap`. An empty array preserves line-level selection
+when precise geometry is unavailable.
 
 Error:
 

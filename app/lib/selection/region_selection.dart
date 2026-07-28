@@ -1,14 +1,20 @@
-import 'dart:math' as math;
-
 import 'package:flutter/foundation.dart';
 
 import 'package:ubuntu_live_text/ocr/ocr_result.dart';
 
-/// Immutable line selection over one OCR result.
+@immutable
+class TextPosition {
+  const TextPosition({required this.regionId, required this.offset});
+
+  final String regionId;
+  final int offset;
+}
+
+/// Immutable text-range selection over one OCR result.
 ///
-/// Regions are always held in reading order. A selection is a contiguous
-/// range between a fixed anchor and a moving focus, which keeps replacement,
-/// Shift-extension in either direction, and copy text deterministic.
+/// Positions are line-local Unicode code-point boundaries. The anchor and
+/// focus retain direction while reading and painting use their normalized
+/// order.
 @immutable
 class RegionSelection {
   /// Creates an empty selection over [regions], ordering them by
@@ -27,6 +33,7 @@ class RegionSelection {
       {for (var i = 0; i < ordered.length; i++) ordered[i].id: i},
       null,
       null,
+      null,
     );
   }
 
@@ -35,37 +42,64 @@ class RegionSelection {
     this._indexById,
     this._anchor,
     this._focus,
+    this._lineAnchor,
   );
 
   /// All regions in reading order.
   final List<TextRegion> regions;
 
   final Map<String, int> _indexById;
-  final int? _anchor;
-  final int? _focus;
+  final TextPosition? _anchor;
+  final TextPosition? _focus;
+  final int? _lineAnchor;
 
-  bool get hasSelection => _anchor != null && _focus != null;
+  bool get hasSelection {
+    final anchor = _anchor;
+    final focus = _focus;
+    return anchor != null && focus != null && _compare(anchor, focus) != 0;
+  }
 
   /// Zero-based reading-order position of [id], or null if unknown.
   int? indexOf(String id) => _indexById[id];
 
   bool isSelected(String id) {
     final index = _indexById[id];
-    if (index == null || !hasSelection) {
+    if (index == null) {
       return false;
     }
-    return index >= _lower && index <= _upper;
+    final interval = _selectedInterval(index);
+    return interval != null && interval.$1 < interval.$2;
   }
 
   /// Selected regions in reading order.
-  List<TextRegion> get selectedRegions =>
-      hasSelection ? regions.sublist(_lower, _upper + 1) : const [];
+  List<TextRegion> get selectedRegions => [
+    for (var index = 0; index < regions.length; index++)
+      if (isSelected(regions[index].id)) regions[index],
+  ];
 
-  /// Plain text of the selected lines, one per line, in reading order.
-  String get selectedText => _join(selectedRegions);
+  /// Plain text of the selected range, with newlines between source lines.
+  String get selectedText {
+    final endpoints = _normalized;
+    if (endpoints == null) {
+      return '';
+    }
+    final (lower, upper) = endpoints;
+    final lowerIndex = _indexById[lower.regionId]!;
+    final upperIndex = _indexById[upper.regionId]!;
+    final pieces = <String>[];
+    for (var index = lowerIndex; index <= upperIndex; index++) {
+      final codePoints = regions[index].text.runes.toList(growable: false);
+      final start = index == lowerIndex ? lower.offset : 0;
+      final end = index == upperIndex ? upper.offset : codePoints.length;
+      pieces.add(String.fromCharCodes(codePoints.sublist(start, end)));
+    }
+    return pieces.join('\n');
+  }
 
   /// Plain text of every line, one per line, in reading order.
   String get allText => _join(regions);
+
+  int get selectedCharacterCount => selectedText.runes.length;
 
   /// Replaces the selection with the single region [id].
   RegionSelection select(String id) {
@@ -73,7 +107,13 @@ class RegionSelection {
     if (index == null) {
       return this;
     }
-    return RegionSelection._(regions, _indexById, index, index);
+    return RegionSelection._(
+      regions,
+      _indexById,
+      TextPosition(regionId: id, offset: 0),
+      TextPosition(regionId: id, offset: _length(index)),
+      index,
+    );
   }
 
   /// Extends the selection from the current anchor to [id]. Without an
@@ -83,18 +123,274 @@ class RegionSelection {
     if (index == null) {
       return this;
     }
-    final anchor = _anchor;
-    if (anchor == null) {
+    final anchorIndex = _lineAnchor;
+    if (anchorIndex == null) {
       return select(id);
     }
-    return RegionSelection._(regions, _indexById, anchor, index);
+    final anchorRegion = regions[anchorIndex];
+    if (index < anchorIndex) {
+      return RegionSelection._(
+        regions,
+        _indexById,
+        TextPosition(regionId: anchorRegion.id, offset: _length(anchorIndex)),
+        TextPosition(regionId: id, offset: 0),
+        anchorIndex,
+      );
+    }
+    return RegionSelection._(
+      regions,
+      _indexById,
+      TextPosition(regionId: anchorRegion.id, offset: 0),
+      TextPosition(regionId: id, offset: _length(index)),
+      anchorIndex,
+    );
+  }
+
+  /// Replaces the selection with one recognized character.
+  RegionSelection selectCharacter(String regionId, int offset) {
+    final index = _indexById[regionId];
+    if (index == null || offset < 0 || offset >= _length(index)) {
+      return this;
+    }
+    return selectRange(regionId, offset, offset + 1);
+  }
+
+  /// Replaces the selection with one validated range in [regionId].
+  RegionSelection selectRange(String regionId, int start, int end) {
+    final index = _indexById[regionId];
+    if (index == null || start < 0 || start >= end || end > _length(index)) {
+      return this;
+    }
+    return RegionSelection._(
+      regions,
+      _indexById,
+      TextPosition(regionId: regionId, offset: start),
+      TextPosition(regionId: regionId, offset: end),
+      null,
+    );
+  }
+
+  /// Starts an anchored drag at a validated text boundary.
+  RegionSelection startAt(TextPosition position) {
+    if (!_isValidPosition(position)) {
+      return this;
+    }
+    return RegionSelection._(regions, _indexById, position, position, null);
+  }
+
+  /// Moves the active boundary while preserving the drag anchor.
+  RegionSelection extendToPosition(TextPosition position) {
+    if (!_isValidPosition(position)) {
+      return this;
+    }
+    final anchor = _anchor;
+    if (anchor == null) {
+      return startAt(position);
+    }
+    return RegionSelection._(regions, _indexById, anchor, position, null);
+  }
+
+  bool isRangeSelected(String regionId, int start, int end) {
+    final index = _indexById[regionId];
+    if (index == null || start >= end) {
+      return false;
+    }
+    final interval = _selectedInterval(index);
+    return interval != null && start < interval.$2 && end > interval.$1;
+  }
+
+  RegionSelection selectAll() {
+    if (regions.isEmpty) {
+      return this;
+    }
+    return RegionSelection._(
+      regions,
+      _indexById,
+      TextPosition(regionId: regions.first.id, offset: 0),
+      TextPosition(
+        regionId: regions.last.id,
+        offset: _length(regions.length - 1),
+      ),
+      null,
+    );
+  }
+
+  RegionSelection moveHorizontal(int direction, {required bool extend}) {
+    if (direction == 0 || regions.isEmpty) {
+      return this;
+    }
+    if (!hasSelection) {
+      return direction > 0 ? _selectFirstAvailable() : _selectLastAvailable();
+    }
+    if (extend) {
+      final next = _stepBoundary(_focus!, direction);
+      return next == null ? this : extendToPosition(next);
+    }
+    final endpoints = _normalized!;
+    final character = direction > 0
+        ? _characterAtOrAfter(endpoints.$2)
+        : _characterBefore(endpoints.$1);
+    return character == null
+        ? this
+        : selectCharacter(character.regionId, character.offset);
+  }
+
+  RegionSelection moveVertical(int direction, {required bool extend}) {
+    if (direction == 0 || regions.isEmpty) {
+      return this;
+    }
+    if (!hasSelection) {
+      return direction > 0 ? _selectFirstAvailable() : _selectLastAvailable();
+    }
+    final source = _focus!;
+    final sourceIndex = _indexById[source.regionId]!;
+    for (
+      var targetIndex = sourceIndex + direction;
+      targetIndex >= 0 && targetIndex < regions.length;
+      targetIndex += direction
+    ) {
+      final length = _length(targetIndex);
+      if (length == 0) {
+        continue;
+      }
+      final targetOffset = extend
+          ? source.offset.clamp(0, length)
+          : source.offset.clamp(0, length - 1);
+      final target = TextPosition(
+        regionId: regions[targetIndex].id,
+        offset: targetOffset,
+      );
+      return extend
+          ? extendToPosition(target)
+          : selectCharacter(target.regionId, target.offset);
+    }
+    return this;
   }
 
   /// Removes the selection.
-  RegionSelection clear() => RegionSelection._(regions, _indexById, null, null);
+  RegionSelection clear() =>
+      RegionSelection._(regions, _indexById, null, null, null);
 
-  int get _lower => math.min(_anchor!, _focus!);
-  int get _upper => math.max(_anchor!, _focus!);
+  (TextPosition, TextPosition)? get _normalized {
+    final anchor = _anchor;
+    final focus = _focus;
+    if (anchor == null || focus == null || _compare(anchor, focus) == 0) {
+      return null;
+    }
+    return _compare(anchor, focus) <= 0 ? (anchor, focus) : (focus, anchor);
+  }
+
+  (int, int)? _selectedInterval(int index) {
+    final endpoints = _normalized;
+    if (endpoints == null) {
+      return null;
+    }
+    final (lower, upper) = endpoints;
+    final lowerIndex = _indexById[lower.regionId]!;
+    final upperIndex = _indexById[upper.regionId]!;
+    if (index < lowerIndex || index > upperIndex) {
+      return null;
+    }
+    final start = index == lowerIndex ? lower.offset : 0;
+    final end = index == upperIndex ? upper.offset : _length(index);
+    return (start, end);
+  }
+
+  int _compare(TextPosition first, TextPosition second) {
+    final byLine = _indexById[first.regionId]!.compareTo(
+      _indexById[second.regionId]!,
+    );
+    return byLine != 0 ? byLine : first.offset.compareTo(second.offset);
+  }
+
+  bool _isValidPosition(TextPosition position) {
+    final index = _indexById[position.regionId];
+    return index != null &&
+        position.offset >= 0 &&
+        position.offset <= _length(index);
+  }
+
+  int _length(int index) => regions[index].text.runes.length;
+
+  TextPosition? _stepBoundary(TextPosition position, int direction) {
+    final index = _indexById[position.regionId]!;
+    if (direction > 0) {
+      if (position.offset < _length(index)) {
+        return TextPosition(
+          regionId: position.regionId,
+          offset: position.offset + 1,
+        );
+      }
+      if (index + 1 < regions.length) {
+        return TextPosition(regionId: regions[index + 1].id, offset: 0);
+      }
+      return null;
+    }
+    if (position.offset > 0) {
+      return TextPosition(
+        regionId: position.regionId,
+        offset: position.offset - 1,
+      );
+    }
+    if (index > 0) {
+      return TextPosition(
+        regionId: regions[index - 1].id,
+        offset: _length(index - 1),
+      );
+    }
+    return null;
+  }
+
+  TextPosition? _characterAtOrAfter(TextPosition position) {
+    final index = _indexById[position.regionId]!;
+    if (position.offset < _length(index)) {
+      return position;
+    }
+    for (var next = index + 1; next < regions.length; next++) {
+      if (_length(next) > 0) {
+        return TextPosition(regionId: regions[next].id, offset: 0);
+      }
+    }
+    return null;
+  }
+
+  TextPosition? _characterBefore(TextPosition position) {
+    final index = _indexById[position.regionId]!;
+    if (position.offset > 0) {
+      return TextPosition(
+        regionId: position.regionId,
+        offset: position.offset - 1,
+      );
+    }
+    for (var previous = index - 1; previous >= 0; previous--) {
+      if (_length(previous) > 0) {
+        return TextPosition(
+          regionId: regions[previous].id,
+          offset: _length(previous) - 1,
+        );
+      }
+    }
+    return null;
+  }
+
+  RegionSelection _selectFirstAvailable() {
+    for (final region in regions) {
+      if (region.text.runes.isNotEmpty) {
+        return selectCharacter(region.id, 0);
+      }
+    }
+    return this;
+  }
+
+  RegionSelection _selectLastAvailable() {
+    for (final region in regions.reversed) {
+      final length = region.text.runes.length;
+      if (length > 0) {
+        return selectCharacter(region.id, length - 1);
+      }
+    }
+    return this;
+  }
 
   static String _join(List<TextRegion> regions) =>
       regions.map((region) => region.text).join('\n');

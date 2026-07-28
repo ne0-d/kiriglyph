@@ -6,6 +6,8 @@ from typing import Any, Protocol
 
 from rapidocr import RapidOCR
 
+from worker.character_geometry_probe import Point, map_character_fragments
+
 
 class OcrEngineError(Exception):
     """A failure reported by the third-party OCR runtime."""
@@ -26,7 +28,11 @@ class RapidOcrEngine:
     def recognize(self, image_path: Path, *, width: int, height: int) -> dict[str, Any]:
         started = perf_counter()
         try:
-            output = self._engine(str(image_path))
+            output = self._engine(
+                str(image_path),
+                return_word_box=True,
+                return_single_char_box=True,
+            )
         except Exception as error:
             raise OcrEngineError("RapidOCR failed") from error
 
@@ -37,6 +43,7 @@ class RapidOcrEngine:
             return _result(width, height, [], elapsed_ms=_elapsed_ms(started))
 
         regions: list[dict[str, Any]] = []
+        word_results = output.word_results
         for index, (box, text, score) in enumerate(
             zip(boxes, texts, scores, strict=True)
         ):
@@ -47,6 +54,36 @@ class RapidOcrEngine:
                 ]
                 for point in box
             ]
+            ranges: list[dict[str, Any]] = []
+            if word_results is not None and index < len(word_results):
+                try:
+                    fragments, invalid_reason = map_character_fragments(
+                        text=str(text),
+                        line_polygon=tuple(
+                            Point(x=float(point[0]), y=float(point[1]))
+                            for point in box
+                        ),  # type: ignore[arg-type]
+                        character_results=word_results[index],
+                        image_width=width,
+                        image_height=height,
+                    )
+                    if invalid_reason is None:
+                        ranges = [
+                            {
+                                "start": fragment.start,
+                                "end": fragment.end,
+                                "text": fragment.text,
+                                "polygon": [
+                                    [point.x, point.y]
+                                    for point in fragment.polygon
+                                ],
+                                "geometry_kind": fragment.geometry_kind.value,
+                                "confidence": fragment.confidence,
+                            }
+                            for fragment in fragments
+                        ]
+                except (TypeError, ValueError, IndexError):
+                    ranges = []
             regions.append(
                 {
                     "id": f"line-{index + 1}",
@@ -55,6 +92,7 @@ class RapidOcrEngine:
                     "polygon": polygon,
                     "confidence": min(max(float(score), 0.0), 1.0),
                     "reading_order": index,
+                    "ranges": ranges,
                 }
             )
 
