@@ -2,8 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/ui/workspace/fitted_image_geometry.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/ui/workspace/fitted_image_geometry.dart';
 
 TextRegion _box(String id, double l, double t, double r, double b) =>
     TextRegion(

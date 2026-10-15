@@ -1,4 +1,4 @@
-# Packaging, permissions, and model distribution for Ubuntu Live Text
+# Packaging, permissions, and model distribution for Kiriglyph
 
 Target: Ubuntu 24.04 LTS, GNOME 46, default Wayland session  
 Scope: Debian packages, Flatpak/Flathub, Snap, and AppImage. Sources are primary project documentation, specifications, source/release notes, package metadata, and archive policy.

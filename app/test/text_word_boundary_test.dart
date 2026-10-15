@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/selection/text_word_boundary.dart';
+import 'package:kiriglyph/selection/text_word_boundary.dart';
 
 void main() {
   test('uses Unicode words and contiguous punctuation or whitespace runs', () {

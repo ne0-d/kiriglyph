@@ -31,6 +31,12 @@ htmlcov/
 
 # Local configuration, logs, and secrets
 .local/
+worker/.models/
+worker/benchmarks/segmentation/output/
+worker/benchmarks/segmentation/fixtures/real/*.jpg
+worker/benchmarks/segmentation/fixtures/real/*.png
+scripts/acceptance/output/
+scripts/acceptance/corpus/generated/
 .env
 .env.*
 !.env.example

@@ -1,12 +1,24 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/picker/image_picker_port.dart';
-import 'package:ubuntu_live_text/providers.dart';
-import 'package:ubuntu_live_text/ui/live_text_app.dart';
-import 'package:ubuntu_live_text/worker/ocr_worker.dart';
+import 'package:kiriglyph/app/app_shell.dart';
+import 'package:kiriglyph/capture/instant_capture.dart';
+import 'package:kiriglyph/capture/screen_capture.dart';
+import 'package:kiriglyph/capture/session_image_store.dart';
+import 'package:kiriglyph/overlay/display_layout.dart';
+import 'package:kiriglyph/overlay/overlay_frame.dart';
+import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/providers.dart';
+import 'package:kiriglyph/ui/kiriglyph_app.dart';
+import 'package:kiriglyph/worker/ocr_worker.dart';
+
+import 'overlay_fakes.dart';
 
 /// Image used by workspace tests: 200 x 100 source pixels.
 const kImageWidth = 200;
@@ -195,16 +207,38 @@ OcrResult resultWith(List<TextRegion> regions) => OcrResult(
   timingsMs: const TimingsMs(total: 420),
 );
 
-class FakePicker implements ImagePickerPort {
-  FakePicker({this.path = '/home/neo/Pictures/receipt.png'});
+class FakeScreenCapture implements ScreenCapturePort {
+  FakeScreenCapture([
+    this.result = const ScreenCapture(
+      ScreenCaptureStatus.captured,
+      path: '/home/neo/Pictures/Screenshots/Screenshot.png',
+    ),
+  ]);
 
-  String? path;
+  ScreenCapture result;
   int calls = 0;
 
   @override
-  Future<String?> pickImagePath() async {
+  Future<ScreenCapture> capture() async {
     calls++;
-    return path;
+    return result;
+  }
+
+  @override
+  Future<void> cancel() async {}
+}
+
+class FakeInstantCapture implements InstantCapturePort {
+  FakeInstantCapture([Future<InstantCaptureStatus>? result])
+    : result = result ?? Future.value(InstantCaptureStatus.granted);
+
+  Future<InstantCaptureStatus> result;
+  int calls = 0;
+
+  @override
+  Future<InstantCaptureStatus> requestPermission() {
+    calls++;
+    return result;
   }
 }
 
@@ -237,9 +271,12 @@ class FakeWorker implements OcrWorker {
 
 Future<void> pumpApp(
   WidgetTester tester, {
-  FakePicker? picker,
+  FakeScreenCapture? capture,
+  FakeInstantCapture? instantCapture,
+  String? selectionCommand,
   required OcrWorker worker,
   Size size = const Size(1280, 800),
+  List<Override> overrides = const [],
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -249,17 +286,86 @@ Future<void> pumpApp(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        imagePickerProvider.overrideWithValue(picker ?? FakePicker()),
+        screenCaptureProvider.overrideWithValue(capture ?? FakeScreenCapture()),
+        instantCaptureProvider.overrideWithValue(
+          instantCapture ?? FakeInstantCapture(),
+        ),
+        if (selectionCommand != null)
+          selectionCommandProvider.overrideWithValue(selectionCommand),
         ocrWorkerProvider.overrideWithValue(worker),
+        ...overrides,
       ],
-      child: const LiveTextApp(),
+      child: const KiriglyphApp(),
     ),
   );
   await tester.pump();
 }
 
-Future<void> openImage(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('open-image-fab')));
+/// Starts the selection overlay with a synthetic portal capture and fixture
+/// OCR result, without a file picker.
+Future<void> openOverlayCanvas(
+  WidgetTester tester, {
+  required Directory testRoot,
+  required OcrWorker worker,
+  OcrResult? result,
+  Size size = const Size(1280, 800),
+  List<Override> overrides = const [],
+}) async {
+  final ocr = result ?? sampleResult();
+  final width = ocr.imageWidth;
+  final height = ocr.imageHeight;
+  final image = await tester.runAsync(
+    () => createTestImage(width: width, height: height),
+  );
+  final pictures = Directory('${testRoot.path}/Pictures')..createSync();
+  final runtime = Directory('${testRoot.path}/runtime')..createSync();
+  final shell = FakeShell()
+    ..placement = DisplayPlacement(
+      monitors: [LogicalMonitor(x: 0, y: 0, width: width, height: height)],
+      targetIndex: 0,
+    );
+
+  await pumpApp(
+    tester,
+    size: size,
+    worker: worker,
+    overrides: [
+      appShellProvider.overrideWithValue(shell),
+      silentScreenCaptureProvider.overrideWithValue(FakeSilentPortal(pictures)),
+      sessionImageStoreProvider.overrideWithValue(
+        SessionImageStore(root: runtime),
+      ),
+      overlayFrameCodecProvider.overrideWithValue(
+        FakeFrameCodec(image!, width: width, height: height),
+      ),
+      ...overrides,
+    ],
+  );
+
+  final app = find.byType(KiriglyphApp);
+  expect(app, findsOneWidget);
+  final container = ProviderScope.containerOf(tester.element(app));
+  await tester.runAsync(() async {
+    unawaited(container.read(selectionOverlayProvider.notifier).start());
+    await until(
+      () =>
+          container.read(selectionOverlayProvider).phase == OverlayPhase.ready,
+    );
+  });
   await tester.pump();
-  await tester.pump(const Duration(milliseconds: 300));
+}
+
+/// Starts another overlay on an already-pumped app (after [openOverlayCanvas]).
+Future<void> restartOverlayCanvas(
+  WidgetTester tester,
+  ProviderContainer container,
+) async {
+  await tester.runAsync(() async {
+    unawaited(container.read(selectionOverlayProvider.notifier).start());
+    await until(
+      () =>
+          container.read(selectionOverlayProvider).phase == OverlayPhase.ready,
+    );
+  });
+  await tester.pump();
 }

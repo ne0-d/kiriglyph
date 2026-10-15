@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import 'package:ubuntu_live_text/theme/app_theme.dart';
+import 'package:kiriglyph/ui/workspace/character_range_painter.dart'
+    show selectionOutlinePaint;
 
 /// Paints one OCR region polygon with its interaction state.
 ///
@@ -13,14 +14,14 @@ class RegionPainter extends CustomPainter {
   const RegionPainter({
     required this.polygon,
     required this.selected,
-    required this.hovered,
     required this.focused,
+    required this.selectionColor,
   });
 
   final List<Offset> polygon;
   final bool selected;
-  final bool hovered;
   final bool focused;
+  final Color selectionColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -30,34 +31,23 @@ class RegionPainter extends CustomPainter {
     final path = Path()..addPolygon(polygon, true);
 
     if (selected) {
-      canvas.drawPath(
-        path,
-        Paint()..color = AppColors.ubuntuOrange.withValues(alpha: 0.24),
-      );
-    } else if (hovered) {
-      canvas.drawPath(
-        path,
-        Paint()..color = Colors.white.withValues(alpha: 0.14),
-      );
+      canvas
+        ..drawPath(path, Paint()..color = selectionColor)
+        ..drawPath(path, selectionOutlinePaint(selectionColor));
     }
 
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeJoin = StrokeJoin.round
-      ..strokeWidth = selected ? 2 : 1
-      ..color = selected
-          ? AppColors.ubuntuOrange
-          : Colors.white.withValues(alpha: hovered ? 0.95 : 0.55);
-    canvas.drawPath(path, stroke);
-
     if (focused) {
-      final ring = _bounds(polygon).inflate(3);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(ring, const Radius.circular(3)),
+      final (start, end) = polygon.length >= 4
+          ? (polygon[3], polygon[2])
+          : (_bounds(polygon).bottomLeft, _bounds(polygon).bottomRight);
+      canvas.drawLine(
+        start,
+        end,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = Colors.white,
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 1.5
+          ..color = Colors.white.withValues(alpha: 0.72),
       );
     }
   }
@@ -79,8 +69,8 @@ class RegionPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant RegionPainter old) =>
       old.selected != selected ||
-      old.hovered != hovered ||
       old.focused != focused ||
+      old.selectionColor != selectionColor ||
       !_samePolygon(old.polygon, polygon);
 
   static bool _samePolygon(List<Offset> a, List<Offset> b) {

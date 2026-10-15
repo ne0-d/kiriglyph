@@ -1,0 +1,163 @@
+{
+  "license": "CC0-1.0 equivalent procedural fixtures generated locally by the benchmark harness",
+  "note": "Ground-truth masks are synthetic alpha masks, except no_clear_subject has no expected subject.",
+  "fixtures": [
+    {
+      "id": "person",
+      "image": "person.png",
+      "ground_truth_mask": "person_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 320,
+        "y": 170,
+        "label": "foreground"
+      },
+      "expected_subject": "cartoon person",
+      "categories": [
+        "person"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "animal",
+      "image": "animal.png",
+      "ground_truth_mask": "animal_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 420,
+        "y": 180,
+        "label": "foreground"
+      },
+      "expected_subject": "cat-like animal with tail",
+      "categories": [
+        "animal",
+        "fine boundary"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "product_hole",
+      "image": "product_hole.png",
+      "ground_truth_mask": "product_hole_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 320,
+        "y": 185,
+        "label": "foreground"
+      },
+      "expected_subject": "white mug with handle hole",
+      "categories": [
+        "product",
+        "hole"
+      ],
+      "expected_holes": true
+    },
+    {
+      "id": "overlapping_subjects",
+      "image": "overlapping_subjects.png",
+      "ground_truth_mask": "overlapping_subjects_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 245,
+        "y": 210,
+        "label": "foreground"
+      },
+      "expected_subject": "front blue circle overlapping red circle",
+      "categories": [
+        "overlapping subjects"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "fine_boundaries",
+      "image": "fine_boundaries.png",
+      "ground_truth_mask": "fine_boundaries_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 320,
+        "y": 245,
+        "label": "foreground"
+      },
+      "expected_subject": "plant leaves with thin stems",
+      "categories": [
+        "fine boundaries"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "low_contrast",
+      "image": "low_contrast.png",
+      "ground_truth_mask": "low_contrast_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 320,
+        "y": 190,
+        "label": "foreground"
+      },
+      "expected_subject": "low-contrast round subject",
+      "categories": [
+        "low contrast"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "no_clear_subject",
+      "image": "no_clear_subject.png",
+      "ground_truth_mask": null,
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 320,
+        "y": 180,
+        "label": "foreground"
+      },
+      "expected_subject": "texture with no clear subject",
+      "categories": [
+        "no clear subject"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "screenshot_photo_window",
+      "image": "screenshot_photo_window.png",
+      "ground_truth_mask": "screenshot_photo_window_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 480,
+        "y": 290,
+        "label": "foreground"
+      },
+      "expected_subject": "photo viewer window containing yellow subject",
+      "categories": [
+        "screenshot-like",
+        "product"
+      ],
+      "expected_holes": false
+    },
+    {
+      "id": "screenshot_ui_card",
+      "image": "screenshot_ui_card.png",
+      "ground_truth_mask": "screenshot_ui_card_mask.png",
+      "source_url": "procedural://kiriglyph-benchmark",
+      "license": "CC0-1.0 equivalent procedural generation",
+      "prompt": {
+        "x": 480,
+        "y": 340,
+        "label": "foreground"
+      },
+      "expected_subject": "UI screenshot with selectable blue chip",
+      "categories": [
+        "screenshot-like",
+        "product"
+      ],
+      "expected_holes": false
+    }
+  ]
+}

@@ -1,42 +1,46 @@
 import 'package:flutter/material.dart';
 
-import 'package:ubuntu_live_text/theme/app_theme.dart';
+import 'package:kiriglyph/ui/workspace/selection_band_geometry.dart';
+
+/// The outline that marks selected text independently of its tint.
+Paint selectionOutlinePaint(Color selectionColor) => Paint()
+  ..style = PaintingStyle.stroke
+  ..strokeWidth = 2
+  ..strokeJoin = StrokeJoin.round
+  ..color = selectionColor.withValues(alpha: 0.95);
 
 class CharacterRangePainter extends CustomPainter {
   const CharacterRangePainter({
     required this.polygons,
+    required this.linePolygon,
     required this.selected,
-    required this.hovered,
+    required this.focused,
+    required this.selectionColor,
   });
 
   final List<List<Offset>> polygons;
+  final List<Offset> linePolygon;
   final List<bool> selected;
-  final bool hovered;
+  final bool focused;
+  final Color selectionColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (var index = 0; index < polygons.length; index++) {
-      final polygon = polygons[index];
-      if (polygon.length < 3 || (!selected[index] && !hovered)) {
-        continue;
-      }
-      final path = Path()..addPolygon(polygon, true);
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = selected[index]
-              ? AppColors.ubuntuOrange.withValues(alpha: 0.30)
-              : Colors.white.withValues(alpha: 0.10),
-      );
-      if (selected[index]) {
-        canvas.drawPath(
-          path,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.25
-            ..color = AppColors.ubuntuOrange,
-        );
-      }
+    final band = buildLineSelectionBand(
+      characterPolygons: polygons,
+      selected: selected,
+      linePolygon: linePolygon,
+    );
+    if (band != null) {
+      final path = Path()..addPolygon(band, true);
+      canvas
+        ..drawPath(path, Paint()..color = selectionColor)
+        // An outline, so selection shows without relying on the tint.
+        ..drawPath(path, selectionOutlinePaint(selectionColor));
+    }
+
+    if (focused) {
+      _paintFocusIndicator(canvas);
     }
   }
 
@@ -49,9 +53,56 @@ class CharacterRangePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CharacterRangePainter oldDelegate) =>
-      oldDelegate.hovered != hovered ||
+      oldDelegate.focused != focused ||
+      oldDelegate.selectionColor != selectionColor ||
       !_sameSelected(oldDelegate.selected, selected) ||
+      !_samePolygon(oldDelegate.linePolygon, linePolygon) ||
       !_samePolygons(oldDelegate.polygons, polygons);
+
+  void _paintFocusIndicator(Canvas canvas) {
+    if (linePolygon.length >= 4) {
+      canvas.drawLine(
+        linePolygon[3],
+        linePolygon[2],
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = 1.5
+          ..color = Colors.white.withValues(alpha: 0.72),
+      );
+      return;
+    }
+    if (polygons.isEmpty) {
+      return;
+    }
+    final bounds = _bounds([
+      for (final polygon in polygons)
+        for (final point in polygon) point,
+    ]);
+    canvas.drawLine(
+      bounds.bottomLeft,
+      bounds.bottomRight,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = 1.5
+        ..color = Colors.white.withValues(alpha: 0.72),
+    );
+  }
+
+  static Rect _bounds(List<Offset> points) {
+    var left = points.first.dx;
+    var right = left;
+    var top = points.first.dy;
+    var bottom = top;
+    for (final p in points.skip(1)) {
+      left = left < p.dx ? left : p.dx;
+      right = right > p.dx ? right : p.dx;
+      top = top < p.dy ? top : p.dy;
+      bottom = bottom > p.dy ? bottom : p.dy;
+    }
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
 
   static bool _sameSelected(List<bool> first, List<bool> second) {
     if (first.length != second.length) {
@@ -80,6 +131,18 @@ class CharacterRangePainter extends CustomPainter {
         if (first[index][point] != second[index][point]) {
           return false;
         }
+      }
+    }
+    return true;
+  }
+
+  static bool _samePolygon(List<Offset> first, List<Offset> second) {
+    if (first.length != second.length) {
+      return false;
+    }
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) {
+        return false;
       }
     }
     return true;

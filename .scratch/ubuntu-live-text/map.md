@@ -1,4 +1,4 @@
-# Wayfinder map: Ubuntu Live Text
+# Wayfinder map: Kiriglyph
 
 ## Destination
 

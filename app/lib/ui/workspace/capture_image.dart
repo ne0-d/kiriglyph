@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import 'package:ubuntu_live_text/theme/app_theme.dart';
+import 'package:kiriglyph/theme/app_theme.dart';
 
 /// Under `flutter test` the real file is never decoded; a flat placeholder
 /// keeps rendering deterministic and independent of fixture images.

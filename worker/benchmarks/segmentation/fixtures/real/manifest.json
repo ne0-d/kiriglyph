@@ -1,0 +1,104 @@
+{
+  "note": "User-provided desktop screenshots used for local regression only; images in this directory are ignored and are not distribution fixtures.",
+  "fixtures": [
+    {
+      "id": "google_images_apple_user_regression",
+      "image": "google-images-apple-user-regression.jpg",
+      "source": "user-provided screenshot of a public Google Images results page",
+      "distribution": "do not commit image; local regression only",
+      "prompts": {
+        "istock_apple_click": {
+          "points": [{ "x": 812, "y": 340, "label": "foreground" }]
+        },
+        "istock_apple_lasso": {
+          "polygon": [
+            [715, 255],
+            [796, 236],
+            [884, 247],
+            [933, 313],
+            [913, 414],
+            [816, 445],
+            [724, 402],
+            [690, 321]
+          ]
+        },
+        "grid_apple_click": {
+          "points": [{ "x": 386, "y": 400, "label": "foreground" }]
+        },
+        "grid_apple_lasso": {
+          "polygon": [
+            [328, 332],
+            [395, 320],
+            [447, 347],
+            [454, 405],
+            [420, 438],
+            [347, 441],
+            [309, 398],
+            [311, 356]
+          ]
+        },
+        "apple_logo_click": {
+          "points": [{ "x": 82, "y": 304, "label": "foreground" }]
+        },
+        "apple_logo_lasso": {
+          "polygon": [
+            [16, 207],
+            [124, 207],
+            [157, 294],
+            [128, 385],
+            [23, 386],
+            [9, 295]
+          ]
+        },
+        "google_wordmark_lasso": {
+          "polygon": [
+            [31, 77],
+            [118, 76],
+            [122, 105],
+            [28, 106]
+          ]
+        }
+      }
+    },
+    {
+      "id": "round2_desktop_testing_regression",
+      "images": [
+        "round2-istock-click.jpg",
+        "round2-istock-lasso.jpg"
+      ],
+      "source": "user-provided desktop screenshots for issue 24 worker regression",
+      "distribution": "do not commit images; local regression only",
+      "prompts": {
+        "istock_apple_click": {
+          "image": "round2-istock-click.jpg",
+          "points": [{ "x": 814, "y": 314, "label": "foreground" }]
+        },
+        "istock_apple_rough_lasso": {
+          "image": "round2-istock-lasso.jpg",
+          "polygon": [
+            [690, 190],
+            [810, 160],
+            [940, 180],
+            [966, 325],
+            [900, 405],
+            [720, 395],
+            [676, 280]
+          ]
+        },
+        "green_apples_lasso": {
+          "image": "round2-istock-click.jpg",
+          "polygon": [
+            [0, 310],
+            [110, 300],
+            [112, 430],
+            [0, 450]
+          ]
+        },
+        "green_apple_click": {
+          "image": "round2-istock-click.jpg",
+          "points": [{ "x": 64, "y": 372, "label": "foreground" }]
+        }
+      }
+    }
+  ]
+}

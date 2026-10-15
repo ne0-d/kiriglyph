@@ -1,17 +1,20 @@
 [project]
-name = "live-text-worker"
+name = "kiriglyph-worker"
 version = "0.0.0"
-description = "Long-lived NDJSON OCR worker for Ubuntu Live Text V0"
+description = "Long-lived NDJSON OCR worker for Kiriglyph V0"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dbus-fast>=2.44",
     "onnxruntime==1.31.0",
     "pillow==12.3.0",
     "rapidocr==3.10.0",
 ]
 
 [project.scripts]
-live-text-worker = "worker.__main__:main"
+kiriglyph-worker = "worker.__main__:main"
+kiriglyph-capture = "worker.portal_capture:main"
+kiriglyph-fetch-models = "worker.segmentation_models:main"
 
 [dependency-groups]
 dev = [

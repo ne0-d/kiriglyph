@@ -1,32 +1,50 @@
-# Ubuntu Live Text and Subject Lift V0
+# Kiriglyph V0: selection overlay for text and subjects
 
 Status: in-progress
 
 Ordered delivery and dependencies: [Development V0 roadmap](roadmap.md).
 
+"Live Text" here means the **selection overlay**: press a shortcut and the
+screen in front of you becomes selectable, like Circle to Search. It covers
+selecting and copying text and lifting a subject out of its background. There
+is no manual open-an-image workflow.
+
 ## Problem Statement
 
-Ubuntu users cannot select text directly from arbitrary images or paused video
-frames displayed by existing applications. They also lack a local,
+Ubuntu users cannot select text directly from arbitrary images, web pages, or
+paused video frames displayed by existing applications. They also lack a local,
 system-integrated way to click or draw around a visible subject and export it
 without its background. Current Linux tools do not prove the spatial,
 character-accurate interaction needed for a native-feeling Live Text and
 Subject Lift experience.
 
-The first development version must validate both capabilities locally without
-prematurely building the hardened architecture, packaging, or operating-system
-integration required for a production release. Text is the first exit gate;
-subject lifting follows as a separate V0 milestone.
+The first development version must validate both capabilities locally, inside
+the overlay, without prematurely building the hardened architecture, packaging,
+or operating-system integration required for a production release. Text is the
+first exit gate; Subject Lift follows as a separate V0 milestone in the same
+overlay.
 
 ## Solution
 
-Build a Linux desktop prototype with Flutter and Python. A user opens or
-captures an image, the Flutter application sends it to long-lived local
-workers, and receives engine-neutral OCR geometry or a subject mask. Flutter
-lets the user drag across exact character ranges, copy recognized text, click
-or draw around a subject, refine its mask, and export a transparent PNG.
+Build a Linux desktop prototype with Flutter and Python. A GNOME shortcut wakes
+the already-running app, which takes a silent full-screen capture through the
+XDG Screenshot portal and covers only the display under the pointer with a
+borderless fullscreen view of that display's frozen pixels. The desktop appears
+unchanged; a brief edge glow signals selection mode while local workers run.
 
-After this image-file vertical slice works, add GNOME Wayland capture through the XDG Screenshot portal. A paused video is handled by capturing its visible frame rather than reading the video file.
+In **Text** mode the user drags across characters, double-clicks a word,
+triple-clicks a paragraph, or draws a circle that snaps to whole paragraphs,
+then copies the text. In **Subject** mode the user clicks or draws around a
+visible subject, refines its mask, and copies or saves it as a transparent PNG.
+If OCR finds no text, the overlay stays open, explains that no text was found,
+and keeps object selection available for photos, image viewers, and paused frames
+without visible subtitles.
+Escape, Close, or focusing another display returns to the live desktop. A paused
+video is handled by capturing its visible frame rather than reading the video
+file.
+
+A small normal window exists only for setup: the one-time instant-capture
+permission, GNOME shortcut instructions, and status.
 
 All OCR and segmentation remain inside the local processing boundary. Pixels,
 recognized text, embeddings, and masks exist only for the active capture
@@ -34,85 +52,65 @@ session.
 
 ## User Stories
 
-1. As an Ubuntu user, I want to open an image and recognize its text locally, so that I can extract text without uploading private content.
-2. As an Ubuntu user, I want to see recognized lines in their positions on the image, so that I understand which visual content produced each result.
-3. As an Ubuntu user, I want to drag across exact character ranges directly on
-   an image, including partial words and multiple lines, so that the image
-   behaves like selectable text.
-4. As an Ubuntu user, I want to copy all recognized text, so that I can quickly reuse the complete result.
-5. As an Ubuntu user, I want a synchronized selectable text view, so that I can make character-level selections even when image-region geometry is only line-accurate.
-6. As a keyboard user, I want to navigate recognized regions and copy or dismiss the result without a pointer, so that the core workflow is keyboard operable.
-7. As a user of assistive technology, I want recognized text exposed through standard Flutter semantics, so that it is not available only as painted boxes.
-8. As an Ubuntu Wayland user, I want to capture an area, window, or screen through GNOME's trusted selector, so that screen access is explicit and compositor mediated.
-9. As a video viewer, I want to pause a video and capture its visible text, so that the OCR workflow does not depend on the video player.
-10. As a privacy-conscious user, I want captures and OCR text discarded when I close the result, so that the application does not build a history.
-11. As a user, I want cancellation treated as normal, so that backing out does not produce an alarming error.
-12. As a user, I want failures to distinguish capture, OCR, no-text, timeout, worker, and clipboard problems, so that I know what action to take.
-13. As a developer, I want OCR engines hidden behind one result contract, so that RapidOCR can later be compared with Tesseract or PaddleOCR without rewriting the Flutter UI.
-14. As a developer, I want deterministic image fixtures and schema validation, so that changes to OCR integration cannot silently break geometry or protocol compatibility.
-15. As a developer, I want one command to bootstrap and run both parts during development, so that contributors can reproduce the V0 environment.
-16. As an Ubuntu user, I want to click a visible subject or draw around it, so
-    that I can isolate it from the background.
-17. As an Ubuntu user, I want to copy or save the isolated subject as a
-    transparent PNG, so that I can reuse it in another application.
-18. As a privacy-conscious user, I want segmentation to run locally without an
-    LLM or remote model service.
+1. As an Ubuntu Wayland user, I want a shortcut to freeze the display I'm using in place and make its text selectable, so that it feels like the desktop itself became selectable rather than another app opening.
+2. As a user with several displays, I want only the display under my pointer to freeze, so that my other displays stay live and usable.
+3. As an Ubuntu user, I want to drag across exact character ranges directly on the frozen screen, including partial words and multiple lines, so that the screen behaves like selectable text.
+4. As a user, I want double-click to select a word and triple-click to select a paragraph, so that common selections are fast.
+5. As a user, I want to draw a rough circle and get the whole paragraphs it covers, so that I don't need precise dragging.
+6. As a user, I want selections to look like normal document text selection, one continuous band per line including spaces, so that selecting feels smooth rather than tiled.
+7. As a user, I want to copy the selection, or all recognized text, so that I can reuse it quickly.
+8. As a keyboard user, I want to navigate, select, copy, and dismiss without a pointer, so that the core workflow is keyboard operable.
+9. As a user of assistive technology, I want recognized text and status exposed through standard Flutter semantics, so that they are not available only as painted geometry.
+10. As a video viewer, I want to pause a video and capture its visible text, so that the workflow does not depend on the video player.
+11. As a privacy-conscious user, I want captures, OCR text, and masks discarded when I dismiss the overlay, so that the application does not build a history.
+12. As a user, I want to grant screen access once, explicitly, so that later shortcut captures are instant and silent.
+13. As a user, I want cancellation and dismissal treated as normal, so that backing out never produces an alarming error.
+14. As a user, I want failures to distinguish capture, OCR timeout, worker, and clipboard problems, and I want successful no-text OCR to keep object selection available, so that I know what action to take.
+15. As an Ubuntu user, I want to click a visible subject or draw around it, so that I can isolate it from the background.
+16. As an Ubuntu user, I want to copy or save the isolated subject as a transparent PNG, so that I can reuse it in another application.
+17. As a privacy-conscious user, I want segmentation to run locally without an LLM or remote model service.
+18. As a developer, I want OCR engines hidden behind one result contract, so that RapidOCR can later be compared with Tesseract or PaddleOCR without rewriting the Flutter UI.
+19. As a developer, I want deterministic image fixtures and schema validation, so that changes to OCR integration cannot silently break geometry or protocol compatibility.
+20. As a developer, I want one command to bootstrap, install, and run both parts, so that contributors can reproduce the V0 environment.
 
 ## Implementation Decisions
 
 - Flutter owns all V0 user interface, application state, result rendering, selection, clipboard actions, and user-visible errors.
-- The result surface is a normal desktop window. A transparent, click-through, or compositor-level fullscreen overlay is not part of V0.
-- The capture surface is rendered with validated character-range geometry
-  above it and a synchronized standard selectable text representation beside
-  or below it.
+- The primary and only result surface is a borderless fullscreen selection overlay on the display under the pointer, showing that display's frozen pixels at exact physical size. Other displays stay live; focusing them dismisses the overlay.
+- The normal window is a setup surface only: instant-capture permission, shortcut steps, status, and quit. V0 has no "open image" workflow and no image-file picker for input.
+- The overlay shows no region or character outlines by default. Selection renders as one continuous highlight band per line, following the line's tilt, including spaces. The pointer is a text cursor over text.
+- A drag that starts on text selects characters; a drag that starts off text is classified as either a text loop or an object lasso. Paragraphs are grouped from line spacing, text height, alignment, and horizontal overlap.
+- Text and Subject are explicit modes of the overlay, so pointer behaviour is never ambiguous.
+- Flutter UI uses the `yaru` package for Ubuntu-native theme and controls.
 - Riverpod manages capture-session and worker state; process and OCR details remain outside widgets.
-- Python 3.12 hosts the OCR worker.
+- Python 3.12+ hosts the OCR worker.
 - Flutter launches one long-lived Python child process with `Process.start`.
 - The process interface is versioned newline-delimited JSON over stdin and stdout. Each request and response has a request ID.
 - Standard output contains protocol messages only. Diagnostics go to standard error and exclude captured pixels and recognized text.
-- The OCR boundary returns ordered lines and validated character ranges in
-  source-image coordinates, with provenance, confidence, timings, and typed
-  errors.
+- The OCR boundary returns ordered lines and validated character ranges in source-image coordinates, with provenance, confidence, timings, and typed errors.
 - RapidOCR with ONNX Runtime CPU is the first adapter. The result contract does not expose RapidOCR-specific types.
-- Character geometry must be measured rather than approximated by evenly
-  dividing line or word rectangles. If RapidOCR cannot satisfy the fixture
-  thresholds, V0 evaluates another local OCR adapter before implementing drag
-  selection.
-- Image dragging supports partial words, punctuation, whitespace, and
-  multiline ranges. A standard selectable text panel remains the accessible
-  fallback.
-- Subject Lift is a separate V0 milestone after the Text acceptance gate. It
-  uses a local interactive segmentation adapter selected through a bounded
-  CPU/quality bake-off.
-- Subject selection accepts point and drawn-region prompts and produces a
-  validated mask. V0 exports a transparent PNG and image clipboard payload.
-- Subject lifting does not imply semantic identification; naming an object is
-  outside V0 unless separately approved.
-- The first vertical slice uses an existing image selected through Flutter's file selector.
-- A later V0 slice uses Python `dbus-next` to call the XDG Screenshot portal on GNOME Wayland.
-- User-configured GNOME shortcut activation follows portal capture and is not required for the first usable demo.
+- Character geometry must be measured rather than approximated by evenly dividing line or word rectangles.
+- Subject Lift uses a local interactive segmentation adapter selected through a bounded CPU/quality bake-off. It accepts point and drawn-region prompts, computes one embedding per capture, and produces a validated mask. Export is a transparent PNG and an image clipboard payload from the overlay toolbar. It does not imply semantic identification.
+- Screen capture uses Python `dbus-fast` (the maintained fork of `dbus-next`) in a one-shot helper process calling the XDG Screenshot portal with `interactive=false`. GNOME returns one image spanning all displays; the app crops the active display using the monitor layout.
+- Silent capture requires a one-time GNOME access dialog, which GNOME only shows to the focused app. The setup window's "Enable instant capture" action triggers it. The app has a real application ID and installed desktop file so GNOME stores the grant against it.
+- A silent capture writes `~/Pictures/Screenshot*.png` without clipboard, notification, or Screenshots-folder side effects. The app reads it into memory and deletes exactly the returned file immediately; it never deletes any other file. GNOME plays its screenshot flash and sound on every capture; this is accepted.
+- The app autostarts hidden at login and stays resident with a warm OCR worker. A GNOME custom shortcut runs the app's selection command, which activates the resident single instance; repeated activation never opens a second overlay or worker. The app never modifies GNOME settings itself.
 - Flutter dependencies are locked with the pub lockfile. Python dependencies use `pyproject.toml` and a `uv` lockfile.
 - Shared JSON schemas define protocol envelopes and OCR result structures.
-- Captured content and OCR results remain in memory for one capture session. Persistent history, content telemetry, and notification previews are absent.
-- Developer bootstrap and launch scripts are the only V0 distribution mechanism.
+- Captured content, OCR results, embeddings, and masks remain in memory for one capture session. Persistent history, content telemetry, and notification previews are absent. The only on-disk copy is a private owner-only crop under `$XDG_RUNTIME_DIR` for the OCR worker, deleted when the session ends.
+- Developer bootstrap and install scripts are the only V0 distribution mechanism.
 
 ## Testing Decisions
 
 - The primary seam is the versioned Flutter-to-Python worker contract. Fixed image fixtures must produce schema-valid OCR results that Flutter can render without knowing the OCR engine.
 - Worker contract tests exercise startup, request correlation, malformed messages, no-text results, OCR failure, timeout, cancellation by worker restart, and graceful shutdown.
-- OCR adapter tests use small, non-sensitive fixtures and assert text,
-  character-range ordering, containment, polygon bounds, and invariant
-  validity rather than exact confidence values.
-- Character-drag tests cover partial words, punctuation, whitespace,
-  multiline ranges, rotation, perspective, zoom, and invalid-geometry fallback.
-- Segmentation tests use non-sensitive fixtures and measure mask validity,
-  prompt consistency, boundary quality, cancellation, and transparent export.
-- Flutter state tests exercise capture-session transitions, stale response
-  rejection, character selection, mask selection, copy/export construction,
-  retry, cancellation, and worker failure.
-- Flutter widget tests verify that an OCR result creates visible spatial regions and synchronized selectable text.
-- Portal tests cover success, user cancellation, unavailable portal, invalid URI, and cleanup. They run separately from the image-file contract tests.
-- Wayland acceptance tests run manually on Ubuntu 24.04 GNOME Wayland for the capture flow. X11-only success is not sufficient.
+- OCR adapter tests use small, non-sensitive fixtures and assert text, character-range ordering, containment, polygon bounds, and invariant validity rather than exact confidence values.
+- Character-drag, circle, and paragraph tests cover partial words, punctuation, whitespace, multiline ranges, rotation, perspective, zoom, paragraph grouping, and invalid-geometry fallback.
+- Segmentation tests use non-sensitive fixtures and measure mask validity, prompt consistency, boundary quality, cancellation, and transparent export.
+- Flutter state tests exercise capture-session transitions, stale response rejection, character selection, mask selection, copy/export construction, retry, cancellation, and worker failure.
+- Portal tests cover success, permission denied, unavailable portal, invalid URI, and deletion of the returned file.
+- Display-crop tests use synthetic multi-display layouts, including mixed resolutions and fractional scales.
+- Wayland acceptance tests run manually on Ubuntu 26.04 GNOME 50 Wayland for the overlay flow, with one and two displays and fractional scaling. X11-only success is not sufficient.
 - Tests assert that protocol logs and normal diagnostics do not contain recognized text or image data.
 - External behavior is tested through module interfaces; implementation details of RapidOCR, Riverpod providers, or JSON parsing are not asserted directly.
 
@@ -120,7 +118,9 @@ session.
 
 - Rust or C++ services
 - A custom GTK result surface
-- A transparent, click-through, persistent, or compositor-level overlay
+- A transparent or click-through overlay over live applications, or a GNOME Shell extension
+- Overlays on more than one display at once
+- A manual "open an image file" workflow
 - Continuous video OCR or frame tracking
 - Reading video files directly
 - Offline translation or data detectors
@@ -128,7 +128,7 @@ session.
 - Cloud OCR, remote inference, LLMs, or generative models
 - Production process isolation
 - Flatpak, Snap, Debian, or AppImage packaging
-- Autostart, background capture, or automatic shortcut modification
+- Capture without an explicit shortcut press, or automatic shortcut modification
 - Cross-platform release parity
 - Final production OCR-engine selection
 - Ubuntu or GNOME upstream integration
@@ -138,6 +138,7 @@ session.
 
 ## Further Notes
 
-- Development and capture acceptance must use an Ubuntu on Wayland session; the initial machine inspection found the current session running X11.
+- Development and capture acceptance use Ubuntu 26.04 GNOME 50 on Wayland.
+- Overlay direction and silent-capture evidence: [ADR 0001](../../docs/adr/0001-selection-overlay-silent-capture.md).
 - RapidOCR is a development adapter, not the production winner. The existing three-engine bake-off remains the basis for a later production decision.
 - If Flutter accessibility, Wayland behavior, latency, or process reliability fails the V0 acceptance evidence, the production architecture may reopen the native-service research without rewriting the engine-neutral result contract.

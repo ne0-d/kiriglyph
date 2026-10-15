@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/selection/region_selection_provider.dart';
-import 'package:ubuntu_live_text/ui/workspace/region_painter.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/region_selection_provider.dart';
+import 'package:kiriglyph/theme/app_theme.dart';
+import 'package:kiriglyph/ui/workspace/region_painter.dart';
 
 /// One OCR region on the canvas: paints its polygon and owns the pointer,
 /// keyboard and accessibility behavior for it.
@@ -15,11 +17,16 @@ class RegionTarget extends ConsumerStatefulWidget {
   const RegionTarget({
     super.key,
     required this.region,
+    this.focusable = true,
     required this.readingIndex,
     required this.polygon,
   });
 
   final TextRegion region;
+
+  /// Whether Tab can stop on this line; off in the overlay, where the canvas
+  /// owns the keyboard.
+  final bool focusable;
 
   /// Zero-based position in reading order.
   final int readingIndex;
@@ -31,7 +38,18 @@ class RegionTarget extends ConsumerStatefulWidget {
 }
 
 class _RegionTargetState extends ConsumerState<RegionTarget> {
+  late final FocusNode _focusNode = FocusNode(
+    debugLabel: 'recognized line',
+    canRequestFocus: widget.focusable,
+    skipTraversal: !widget.focusable,
+  );
   bool _focused = false;
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   void _activate() {
     ref
@@ -48,7 +66,6 @@ class _RegionTargetState extends ConsumerState<RegionTarget> {
     final selected = ref.watch(
       regionSelectionProvider.select((s) => s.isSelected(id)),
     );
-    final hovered = ref.watch(hoveredRegionProvider.select((h) => h == id));
     final hover = ref.read(hoveredRegionProvider.notifier);
 
     return FocusTraversalOrder(
@@ -57,10 +74,12 @@ class _RegionTargetState extends ConsumerState<RegionTarget> {
         container: true,
         button: true,
         selected: selected,
+        sortKey: OrdinalSortKey(widget.readingIndex.toDouble()),
         label: 'Line ${widget.readingIndex + 1}: ${widget.region.text}',
         onTap: _activate,
         child: FocusableActionDetector(
-          mouseCursor: SystemMouseCursors.click,
+          focusNode: _focusNode,
+          mouseCursor: SystemMouseCursors.text,
           onShowFocusHighlight: (value) => setState(() => _focused = value),
           onShowHoverHighlight: (value) =>
               value ? hover.enter(id) : hover.leave(id),
@@ -80,8 +99,10 @@ class _RegionTargetState extends ConsumerState<RegionTarget> {
               painter: RegionPainter(
                 polygon: widget.polygon,
                 selected: selected,
-                hovered: hovered,
                 focused: _focused,
+                selectionColor:
+                    Theme.of(context).textSelectionTheme.selectionColor ??
+                    AppColors.ubuntuOrange.withValues(alpha: 0.30),
               ),
             ),
           ),

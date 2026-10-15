@@ -1,17 +1,15 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kiriglyph/ui/kiriglyph_app.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ubuntu_live_text/capture/capture_session.dart';
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/picker/image_picker_port.dart';
-import 'package:ubuntu_live_text/providers.dart';
-import 'package:ubuntu_live_text/selection/region_selection_provider.dart';
-import 'package:ubuntu_live_text/worker/ocr_worker.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/selection/region_selection_provider.dart';
+import 'package:kiriglyph/worker/ocr_worker.dart';
 
-class _Picker implements ImagePickerPort {
-  @override
-  Future<String?> pickImagePath() async => '/tmp/sample.png';
-}
+import 'support/workspace_harness.dart';
 
 class _SequenceWorker implements OcrWorker {
   _SequenceWorker(this.results);
@@ -34,8 +32,8 @@ class _SequenceWorker implements OcrWorker {
 }
 
 OcrResult _result(List<String> lines) => OcrResult(
-  imageWidth: 100,
-  imageHeight: 100,
+  imageWidth: kImageWidth,
+  imageHeight: kImageHeight,
   fullText: lines.join('\n'),
   regions: [
     for (var i = 0; i < lines.length; i++)
@@ -57,41 +55,40 @@ OcrResult _result(List<String> lines) => OcrResult(
 );
 
 void main() {
-  late ProviderContainer container;
+  late Directory root;
 
   setUp(() {
-    container = ProviderContainer(
-      overrides: [
-        imagePickerProvider.overrideWithValue(_Picker()),
-        ocrWorkerProvider.overrideWithValue(
-          _SequenceWorker([
-            _result(['One', 'Two', 'Three']),
-            _result(['Four', 'Five']),
-          ]),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
-    // Keep the selection alive across session transitions, as the UI does.
-    container.listen(regionSelectionProvider, (_, _) {});
+    root = Directory.systemTemp.createTempSync('region-selection-');
   });
 
-  Future<void> openImage() =>
-      container.read(captureSessionProvider.notifier).openImage();
+  tearDown(() => root.deleteSync(recursive: true));
 
-  test(
-    'a recognized session starts with the lines in order and no selection',
-    () async {
-      await openImage();
+  testWidgets('overlay session starts with lines in order and no selection', (
+    tester,
+  ) async {
+    final container = await _pumpWithOverlay(
+      tester,
+      root,
+      worker: _SequenceWorker([
+        _result(['One', 'Two', 'Three']),
+      ]),
+    );
 
-      final selection = container.read(regionSelectionProvider);
-      expect(selection.allText, 'One\nTwo\nThree');
-      expect(selection.hasSelection, isFalse);
-    },
-  );
+    final selection = container.read(regionSelectionProvider);
+    expect(selection.allText, 'One\nTwo\nThree');
+    expect(selection.hasSelection, isFalse);
+  });
 
-  test('selection controller applies replace, extend and clear', () async {
-    await openImage();
+  testWidgets('selection controller applies replace, extend and clear', (
+    tester,
+  ) async {
+    final container = await _pumpWithOverlay(
+      tester,
+      root,
+      worker: _SequenceWorker([
+        _result(['One', 'Two', 'Three']),
+      ]),
+    );
     final controller = container.read(regionSelectionProvider.notifier);
 
     controller.select('line-0');
@@ -108,26 +105,50 @@ void main() {
     expect(container.read(regionSelectionProvider).hasSelection, isFalse);
   });
 
-  test('opening another image discards the previous selection', () async {
-    await openImage();
+  testWidgets('a new overlay discards the previous selection', (tester) async {
+    final worker = _SequenceWorker([
+      _result(['One', 'Two', 'Three']),
+      _result(['Four', 'Five']),
+    ]);
+    final container = await _pumpWithOverlay(tester, root, worker: worker);
     container.read(regionSelectionProvider.notifier).select('line-1');
 
-    await openImage();
-
+    await tester.runAsync(
+      () => container.read(selectionOverlayProvider.notifier).dismiss(),
+    );
+    await tester.pump();
+    await restartOverlayCanvas(tester, container);
     final selection = container.read(regionSelectionProvider);
     expect(selection.allText, 'Four\nFive');
     expect(selection.hasSelection, isFalse);
   });
 
-  test('starting a new image discards the previous selection', () async {
-    await openImage();
-    container.read(regionSelectionProvider.notifier).select('line-1');
+  testWidgets('dismissing the overlay clears the selection', (tester) async {
+    final container = await _pumpWithOverlay(
+      tester,
+      root,
+      worker: _SequenceWorker([
+        _result(['One']),
+      ]),
+    );
+    container.read(regionSelectionProvider.notifier).select('line-0');
 
-    container.read(captureSessionProvider.notifier).reset();
+    await tester.runAsync(
+      () => container.read(selectionOverlayProvider.notifier).dismiss(),
+    );
+    await tester.pump();
 
     final selection = container.read(regionSelectionProvider);
     expect(selection.regions, isEmpty);
     expect(selection.hasSelection, isFalse);
-    expect(container.read(captureSessionProvider).phase, CapturePhase.idle);
   });
+}
+
+Future<ProviderContainer> _pumpWithOverlay(
+  WidgetTester tester,
+  Directory testRoot, {
+  required OcrWorker worker,
+}) async {
+  await openOverlayCanvas(tester, testRoot: testRoot, worker: worker);
+  return ProviderScope.containerOf(tester.element(find.byType(KiriglyphApp)));
 }

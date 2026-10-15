@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/ui/workspace/character_hit_test.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/ui/workspace/character_hit_test.dart';
 
 TextCharacterRange _range(int start, double left, double right) =>
     TextCharacterRange(

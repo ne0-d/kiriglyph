@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/protocol/protocol_error.dart';
-import 'package:ubuntu_live_text/protocol/worker_protocol.dart';
-import 'package:ubuntu_live_text/worker/ocr_worker.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/protocol/protocol_error.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
+import 'package:kiriglyph/worker/ocr_worker.dart';
 
 class WorkerLaunchConfig {
   const WorkerLaunchConfig({

@@ -1,54 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ubuntu_live_text/capture/capture_session.dart';
-import 'package:ubuntu_live_text/ui/app_header.dart';
-import 'package:ubuntu_live_text/ui/status_views.dart';
-import 'package:ubuntu_live_text/ui/workspace/result_workspace.dart';
+import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/ui/app_header.dart';
+import 'package:kiriglyph/ui/onboarding/onboarding_view.dart';
+import 'package:kiriglyph/ui/overlay/selection_overlay_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(captureSessionProvider);
+    final overlay = ref.watch(
+      selectionOverlayProvider.select(
+        (overlay) =>
+            overlay.isActive && overlay.phase != OverlayPhase.capturing,
+      ),
+    );
+    if (overlay) {
+      return const SelectionOverlayScreen();
+    }
 
-    return Scaffold(
+    return const Scaffold(
       body: Column(
         children: [
-          const AppHeader(),
-          Expanded(child: _Body(session: session)),
+          AppHeader(),
+          Expanded(child: OnboardingView()),
         ],
       ),
     );
-  }
-}
-
-class _Body extends StatelessWidget {
-  const _Body({required this.session});
-
-  final CaptureSessionState session;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (session.phase) {
-      case CapturePhase.idle:
-        return const EmptyStateView();
-      case CapturePhase.recognizing:
-        return const RecognizingStateView();
-      case CapturePhase.error:
-        return ErrorStateView(
-          message: session.userMessage ?? 'Local OCR failed.',
-        );
-      case CapturePhase.ready:
-        final path = session.imagePath;
-        final result = session.ocrResult;
-        if (path == null || result == null) {
-          return const ErrorStateView(
-            message: 'Something went wrong. Try again.',
-          );
-        }
-        return ResultWorkspace(imagePath: path, ocrResult: result);
-    }
   }
 }

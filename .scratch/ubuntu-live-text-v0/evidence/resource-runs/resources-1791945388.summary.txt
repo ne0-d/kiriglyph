@@ -1,0 +1,6 @@
+CSV: .scratch/ubuntu-live-text-v0/evidence/resource-runs/resources-1791945388.csv
+Process growth after settle: 0 (threshold: 0)
+RSS growth after activation 5: 0.00% (threshold: <10%)
+Max runtime session files: 0 (threshold: 0 after dismissal)
+New ~/Pictures Screenshot*.png: 0 (threshold: 0)
+RESULT: PASS

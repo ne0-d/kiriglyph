@@ -20,8 +20,11 @@ if ! command -v clang++ >/dev/null 2>&1 ||
   exit 1
 fi
 
-export LIVE_TEXT_WORKER_ROOT="$ROOT/worker"
-export LIVE_TEXT_WORKER_PYTHON="$WORKER_PYTHON"
+export KIRIGLYPH_WORKER_ROOT="$ROOT/worker"
+export KIRIGLYPH_WORKER_PYTHON="$WORKER_PYTHON"
+# Run as a separate, non-resident instance even while the installed app is
+# running; otherwise the launch would be forwarded to it and exit.
+export KIRIGLYPH_DEV_INSTANCE=1
 
 cd "$ROOT/app"
 exec "$FLUTTER" run -d linux "$@"

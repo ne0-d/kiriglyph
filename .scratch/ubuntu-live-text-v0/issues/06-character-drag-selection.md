@@ -12,8 +12,9 @@ the exact selected substring.
   updates one anchored range in reading order.
 - [x] Selection supports partial words, punctuation, whitespace, multiline
   ranges, backward dragging, replacement, extension, and clearing.
-- [x] One, two, and three nearby primary clicks select the character, Unicode
-  word/run, and complete OCR line respectively.
+- [x] One and two nearby primary clicks select the character and Unicode
+  word/run. Three nearby primary clicks now select the complete paragraph when
+  paragraph grouping is available, falling back to the OCR line.
 - [x] Highlight polygons remain aligned while fitted, resized, zoomed, or
   panned and never imply character precision where geometry is unavailable.
 - [x] Copied text preserves exact characters and sensible source whitespace
@@ -68,7 +69,8 @@ commands to this module rather than constructing substrings themselves.
 - One click on validated character geometry selects that character.
 - Two nearby clicks select the Unicode word containing that character;
   punctuation and whitespace select their own contiguous runs.
-- Three nearby clicks select the complete OCR line.
+- Three nearby clicks select the complete paragraph when paragraph grouping is
+  available, falling back to the complete OCR line.
 - Starting another character drag replaces the current range.
 - Clicking empty canvas space without panning clears the selection.
 - Lines with unavailable geometry retain the existing line interaction and

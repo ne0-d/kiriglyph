@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/selection/region_selection.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/region_selection.dart';
 
 TextRegion _region(String id, String text, int order) => TextRegion(
   id: id,
@@ -261,6 +261,19 @@ void main() {
       expect(selection.selectedText, '\n');
       expect(selection.selectedCharacterCount, 1);
       expect(selection.selectedRegions, isEmpty);
+    });
+
+    test('explicit line ranges can skip unmatched lines', () {
+      final selection = RegionSelection([
+        _region('a', 'Alpha', 0),
+        _region('b', 'Beta', 1),
+        _region('c', 'Gamma', 2),
+      ]).selectLineRanges({'a': (1, 4), 'c': (0, 2)});
+
+      expect(selection.selectedText, 'lph\nGa');
+      expect(selection.selectedRegions.map((region) => region.id), ['a', 'c']);
+      expect(selection.isSelected('b'), isFalse);
+      expect(selection.isRangeSelected('a', 2, 3), isTrue);
     });
   });
 }

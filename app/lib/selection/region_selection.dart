@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
 
 @immutable
 class TextPosition {
@@ -34,6 +34,7 @@ class RegionSelection {
       null,
       null,
       null,
+      null,
     );
   }
 
@@ -43,6 +44,7 @@ class RegionSelection {
     this._anchor,
     this._focus,
     this._lineAnchor,
+    this._explicitRanges,
   );
 
   /// All regions in reading order.
@@ -52,8 +54,13 @@ class RegionSelection {
   final TextPosition? _anchor;
   final TextPosition? _focus;
   final int? _lineAnchor;
+  final Map<String, (int, int)>? _explicitRanges;
 
   bool get hasSelection {
+    final explicitRanges = _explicitRanges;
+    if (explicitRanges != null) {
+      return explicitRanges.values.any((range) => range.$1 < range.$2);
+    }
     final anchor = _anchor;
     final focus = _focus;
     return anchor != null && focus != null && _compare(anchor, focus) != 0;
@@ -79,6 +86,21 @@ class RegionSelection {
 
   /// Plain text of the selected range, with newlines between source lines.
   String get selectedText {
+    final explicitRanges = _explicitRanges;
+    if (explicitRanges != null) {
+      final pieces = <String>[];
+      for (final region in regions) {
+        final range = explicitRanges[region.id];
+        if (range == null || range.$1 >= range.$2) {
+          continue;
+        }
+        final codePoints = region.text.runes.toList(growable: false);
+        pieces.add(
+          String.fromCharCodes(codePoints.sublist(range.$1, range.$2)),
+        );
+      }
+      return pieces.join('\n');
+    }
     final endpoints = _normalized;
     if (endpoints == null) {
       return '';
@@ -113,6 +135,7 @@ class RegionSelection {
       TextPosition(regionId: id, offset: 0),
       TextPosition(regionId: id, offset: _length(index)),
       index,
+      null,
     );
   }
 
@@ -135,6 +158,7 @@ class RegionSelection {
         TextPosition(regionId: anchorRegion.id, offset: _length(anchorIndex)),
         TextPosition(regionId: id, offset: 0),
         anchorIndex,
+        null,
       );
     }
     return RegionSelection._(
@@ -143,6 +167,7 @@ class RegionSelection {
       TextPosition(regionId: anchorRegion.id, offset: 0),
       TextPosition(regionId: id, offset: _length(index)),
       anchorIndex,
+      null,
     );
   }
 
@@ -167,6 +192,42 @@ class RegionSelection {
       TextPosition(regionId: regionId, offset: start),
       TextPosition(regionId: regionId, offset: end),
       null,
+      null,
+    );
+  }
+
+  /// Replaces the selection with explicit per-line ranges.
+  ///
+  /// Used by freehand selection, where lines without matched characters must
+  /// stay unselected even when they sit between selected lines in reading
+  /// order.
+  RegionSelection selectLineRanges(Map<String, (int, int)> ranges) {
+    final validated = <String, (int, int)>{};
+    TextPosition? first;
+    TextPosition? last;
+    for (final region in regions) {
+      final range = ranges[region.id];
+      final index = _indexById[region.id]!;
+      if (range == null ||
+          range.$1 < 0 ||
+          range.$1 >= range.$2 ||
+          range.$2 > _length(index)) {
+        continue;
+      }
+      validated[region.id] = range;
+      first ??= TextPosition(regionId: region.id, offset: range.$1);
+      last = TextPosition(regionId: region.id, offset: range.$2);
+    }
+    if (validated.isEmpty || first == null || last == null) {
+      return clear();
+    }
+    return RegionSelection._(
+      regions,
+      _indexById,
+      first,
+      last,
+      null,
+      Map.unmodifiable(validated),
     );
   }
 
@@ -175,7 +236,14 @@ class RegionSelection {
     if (!_isValidPosition(position)) {
       return this;
     }
-    return RegionSelection._(regions, _indexById, position, position, null);
+    return RegionSelection._(
+      regions,
+      _indexById,
+      position,
+      position,
+      null,
+      null,
+    );
   }
 
   /// Moves the active boundary while preserving the drag anchor.
@@ -187,7 +255,7 @@ class RegionSelection {
     if (anchor == null) {
       return startAt(position);
     }
-    return RegionSelection._(regions, _indexById, anchor, position, null);
+    return RegionSelection._(regions, _indexById, anchor, position, null, null);
   }
 
   bool isRangeSelected(String regionId, int start, int end) {
@@ -197,6 +265,11 @@ class RegionSelection {
     }
     final interval = _selectedInterval(index);
     return interval != null && start < interval.$2 && end > interval.$1;
+  }
+
+  (int, int)? selectedRangeFor(String regionId) {
+    final index = _indexById[regionId];
+    return index == null ? null : _selectedInterval(index);
   }
 
   RegionSelection selectAll() {
@@ -212,6 +285,7 @@ class RegionSelection {
         offset: _length(regions.length - 1),
       ),
       null,
+      null,
     );
   }
 
@@ -226,7 +300,7 @@ class RegionSelection {
       final next = _stepBoundary(_focus!, direction);
       return next == null ? this : extendToPosition(next);
     }
-    final endpoints = _normalized!;
+    final endpoints = _selectionBounds!;
     final character = direction > 0
         ? _characterAtOrAfter(endpoints.$2)
         : _characterBefore(endpoints.$1);
@@ -269,7 +343,7 @@ class RegionSelection {
 
   /// Removes the selection.
   RegionSelection clear() =>
-      RegionSelection._(regions, _indexById, null, null, null);
+      RegionSelection._(regions, _indexById, null, null, null, null);
 
   (TextPosition, TextPosition)? get _normalized {
     final anchor = _anchor;
@@ -280,7 +354,30 @@ class RegionSelection {
     return _compare(anchor, focus) <= 0 ? (anchor, focus) : (focus, anchor);
   }
 
+  (TextPosition, TextPosition)? get _selectionBounds {
+    final explicitRanges = _explicitRanges;
+    if (explicitRanges == null) {
+      return _normalized;
+    }
+    TextPosition? first;
+    TextPosition? last;
+    for (final region in regions) {
+      final range = explicitRanges[region.id];
+      if (range == null || range.$1 >= range.$2) {
+        continue;
+      }
+      first ??= TextPosition(regionId: region.id, offset: range.$1);
+      last = TextPosition(regionId: region.id, offset: range.$2);
+    }
+    return first == null || last == null ? null : (first, last);
+  }
+
   (int, int)? _selectedInterval(int index) {
+    final explicitRanges = _explicitRanges;
+    if (explicitRanges != null) {
+      final range = explicitRanges[regions[index].id];
+      return range == null ? null : (range.$1, range.$2);
+    }
     final endpoints = _normalized;
     if (endpoints == null) {
       return null;

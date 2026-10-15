@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/selection/region_selection.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/region_selection.dart';
 
 @immutable
 class CharacterHit {

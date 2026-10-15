@@ -1,4 +1,4 @@
-name: ubuntu_live_text
+name: kiriglyph
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -35,7 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^3.4.3
-  file_selector: ^1.1.0
+  yaru: ^11.0.0
 
 dev_dependencies:
   flutter_test:

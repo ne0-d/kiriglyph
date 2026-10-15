@@ -1,13 +1,19 @@
-# Development V0 Roadmap
+# Kiriglyph Development V0 Roadmap
 
-V0 proves two local interaction capabilities in order:
+V0 proves two local interaction capabilities, both inside one selection
+overlay opened by a GNOME shortcut:
 
-1. **Text:** capture visible content and drag across exact character ranges.
-2. **Subject Lift:** click or draw around a subject and export a transparent
-   PNG.
+1. **Text:** freeze the display under the pointer and select exact text by
+   dragging, double-click, triple-click, or a rough circle that snaps to
+   paragraphs.
+2. **Subject Lift:** click or draw around a subject and export it as a
+   transparent PNG.
+
+There is no manual open-an-image workflow. The normal window is a setup window
+only.
 
 Text is the first exit gate. Subject Lift does not delay judgment of the OCR
-architecture, but both milestones must pass before combined V0 acceptance.
+architecture, but both must pass before combined V0 acceptance.
 
 ```mermaid
 flowchart LR
@@ -18,97 +24,93 @@ flowchart LR
     E --> F[06 Character dragging]
     C --> G[07 GNOME portal capture]
     D --> G
-    G --> H[08 Shortcut launch]
-    F --> I[09 Keyboard and accessibility]
-    G --> I
-    H --> J[10 Text acceptance gate]
+    F --> P[15 Smooth selection]
+    G --> Q[16 Silent capture spike]
+    Q --> R[17 Resident app and shortcut]
+    Q --> S[20 Yaru and setup window]
+    P --> H[18 Selection overlay]
+    R --> H
+    H --> T[19 Circle to select]
+    H --> I[09 Overlay keyboard and screen reader]
+    H --> U[21 Remove manual image workflow]
+    H --> K[11 Segmentation feasibility]
+    T --> J[10 Text acceptance gate]
     I --> J
-    J --> K[11 Segmentation feasibility]
-    K --> L[12 Click and lasso subject selection]
+    U --> J
+    K --> L[12 Subject selection in overlay]
     L --> M[13 Transparent PNG export]
+    L --> V[23 One interface for text and objects]
+    M --> V
     J --> N[14 Combined V0 acceptance]
-    M --> N
+    V --> N
 ```
 
 ## Milestone A: foundation — complete
 
 - Mock Flutter-to-Python vertical slice.
 - Fully local RapidOCR image recognition.
-- Spatial line selection, deterministic copy, selectable text panel, zoom, and
-  responsive Ubuntu-style UI.
+- Spatial line selection, deterministic copy, zoom, and responsive
+  Ubuntu-style UI. Its selection canvas is now shared with the overlay.
 - Request correlation, cancellation, timeout, restart, retry, process cleanup,
   and safe user-facing failures.
 
-## Milestone B: Text
+## Milestone B: Text in the overlay
 
-### 05 — Character geometry — complete
+### Complete
 
-Prove which local OCR path can return reliable character or text-range geometry
-for punctuation, URLs, code, whitespace, small fonts, rotation, and
-perspective. No UI approximation is allowed to masquerade as measured
-geometry.
+- **05** Character geometry: measured per-character geometry from the OCR path.
+- **06** Character dragging: partial words, multiline ranges, exact substrings.
+- **07** Portal capture: superseded; its helper is reused silently
+  ([ADR 0001](../../docs/adr/0001-selection-overlay-silent-capture.md)).
+- **15** Smooth selection: one continuous highlight band per line.
+- **16** Silent capture spike: one-time grant, 520 ms capture, display placement.
+- **17** Resident app and shortcut: autostart hidden, single instance, warm
+  worker, `--select` activation. Replaces 08.
+- **18** Selection overlay: frozen borderless view of the active display, glow
+  and scanning animation, accepted at 100% and 125% on one and two displays.
+- **19** Circle to select: freehand circle, paragraph snapping, triple-click
+  paragraph, paragraph-aware copy.
+- **20** Yaru and setup window: Ubuntu theme, onboarding, permission flow.
+- **21** Remove the manual image workflow: overlay-only selection; setup window
+  only in the normal window.
+- **22** Rename to Kiriglyph: product name, app ID, scripts, and docs.
+- **09** Overlay keyboard and screen reader: focus on open, Tab order,
+  Ctrl+Shift+Up/Down paragraph selection, reading-order semantics, brief
+  announcements, large-text and high-contrast legibility. Implemented with
+  widget tests; Orca and keyboard-only checks are recorded in 10.
 
-### 06 — Character dragging — complete
+### Ready for human acceptance
 
-Implement direct pointer dragging across partial words and multiple lines,
-partial-range highlights, exact copied substrings, zoom-safe hit testing, and
-keyboard-equivalent range extension.
+- **10** Text acceptance gate: automated corpus, privacy/resource harnesses,
+  timing instrumentation, and draft report are ready; the remaining work is the
+  real GNOME Wayland manual checklist and release-build measurements.
 
-### 07 — GNOME portal capture
+## Milestone C: Subject Lift in the overlay
 
-Capture an area, window, or screen through GNOME's XDG Screenshot portal and
-feed the result through the same local OCR workflow. A paused video is treated
-as visible screen content.
-
-### 08 — Shortcut launch
-
-Provide a stable command for a user-configured GNOME shortcut, support cold and
-existing-process activation, and keep one bounded capture session.
-
-### 09 — Keyboard and accessibility
-
-Complete focus order, selection shortcuts, screen-reader semantics, status
-announcements, high contrast, large text, and predictable focus restoration.
-
-### 10 — Text acceptance gate
-
-Publish reproducible OCR quality, character-geometry, latency, memory, privacy,
-Wayland, multi-monitor, fractional-scaling, keyboard, and Orca evidence. Decide
-whether the current OCR adapter and Flutter/Python architecture remain viable.
-
-## Milestone C: Subject Lift
-
-### 11 — Segmentation feasibility
-
-Benchmark local interactive segmentation candidates on Ubuntu CPU for model
-size, startup, image embedding, click response, lasso response, mask quality,
-licensing, ONNX support, and offline distribution. Choose only a V0 adapter,
-not the final production model.
-
-### 12 — Click and lasso selection
-
-Compute one embedding per capture, select a subject from a point or drawn
-region, render its mask, support add/remove/refinement prompts, and keep OCR and
-subject selection as explicit modes in the same result surface.
-
-### 13 — Transparent PNG export
-
-Apply the selected mask to the source pixels, crop to useful bounds, generate
-an RGBA PNG, copy an image payload to the Linux clipboard, save through the
-system file chooser, and clean temporary output.
-
-### 14 — Combined V0 acceptance
-
-Measure the end-to-end shortcut-to-result workflows for both Text and Subject
-Lift. Record limitations and decide what enters the installable alpha.
+- **11** Segmentation feasibility: resolved with EfficientSAM-Ti as the V0 adapter candidate.
+- **12** Subject selection: backend process, EfficientSAM adapter, mask transport,
+  Dart port, explicit model fetch, and overlay UI are implemented. Real-model
+  and multi-display manual evidence moves to 14.
+- **13** Transparent PNG export: Dart cutout compositing, native image
+  clipboard, GTK save chooser, atomic save, focus-loss guard, toolbar buttons,
+  shortcuts, and automated export tests are implemented. Real Wayland paste
+  targets, chooser behavior, and multi-display export evidence move to 14.
+- **23** One interface for text and objects: implemented; the app
+  decides from where the user clicks or draws, with a hint chip to flip the
+  reading. Ready once the desktop-testing fixes to 12 and 13 land.
+- **14** Combined V0 acceptance: OCR and Subject fixture evidence, bounded
+  worker checks, privacy/resource harnesses, timing instrumentation, and draft
+  report are ready; the remaining work is the real GNOME Wayland manual
+  checklist and final alpha decision.
 
 ## V0 boundaries
 
-- Ubuntu 24.04 GNOME Wayland is the acceptance target.
-- Processing is local and offline; LLMs, cloud OCR, and remote segmentation are
+- Ubuntu 26.04 GNOME 50 Wayland is the acceptance target.
+- Processing is local and offline; LLMs, cloud OCR, and remote inference are
   excluded.
-- The result is a frozen capture in a normal application surface. V0 does not
-  inject selectable content into another application's widget tree.
+- The result is a frozen capture shown in a borderless overlay on the active
+  display. V0 does not inject selectable content into another application's
+  widget tree.
 - Continuous video analysis, persistent history, semantic object naming,
   translation, production packaging, and upstream integration remain outside
   V0.

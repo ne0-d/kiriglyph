@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
 
 /// Maps source-image coordinates onto a `BoxFit.contain` destination.
 ///

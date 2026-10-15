@@ -1,28 +1,36 @@
 # 10: Publish the Text milestone acceptance evidence
 
-**What to build:** Maintainers can judge whether the local character-selection
-workflow should advance because its OCR quality, geometry, responsiveness,
-resource use, privacy, accessibility, and Wayland behavior are reproducible.
+**What to build:** Maintainers can judge whether the text half of the overlay
+should advance because its speed, resource use, privacy, text quality, and
+Wayland behaviour are measured and reproducible.
 
-**Blocked by:** 06: Drag across exact text ranges; 07: Capture visible content
-through GNOME; 08: Launch capture from a GNOME shortcut; 09: Make the Text flow
-keyboard and accessibility operable.
+**Blocked by:** 09: Keyboard focus and screen-reader basics for the overlay;
+21: Remove the manual image workflow
 
-**Status:** blocked
+**Status:** ready-for-human: run the manual checklist
 
-- [ ] A pinned non-sensitive corpus records line and character recognition,
-  geometry failures, reading-order failures, and representative screenshots.
-- [ ] Cold worker start, model load, first OCR, warm OCR, and complete
-  shortcut-to-selection latency are measured on documented hardware.
-- [ ] Idle and peak memory, development dependency size, and repeated-request
-  stability are recorded.
-- [ ] Tests verify that logs, temporary files, crash output, and retained
-  settings contain no captured pixels or recognized text.
-- [ ] Ubuntu 24.04 GNOME Wayland results cover portal capture, shortcut
-  activation, cancellation, multiple monitors, fractional scaling, and paused
-  video.
-- [ ] Keyboard and assistive-technology findings include known limitations
+- [ ] Shortcut-to-selectable-text latency is measured on a release build, split
+  into silent capture, crop, OCR, and first paint, for one display and for the
+  two-display setup, on documented hardware. Records cold and warm worker.
+- [ ] Idle and peak memory of the resident app and worker, and stability over
+  50 repeated activations (no growth in processes, files, or memory).
+- [ ] Privacy tests verify that logs, temporary files, crash output, and
+  settings contain no captured pixels or recognized text, that Pictures is
+  untouched after a capture, and that `$XDG_RUNTIME_DIR` holds no session files
+  after dismissal, quit, or a crash-and-restart.
+- [x] A small pinned non-sensitive corpus records line recognition, character
+  geometry and reading-order failures, and paragraph-grouping mistakes, with
+  representative screenshots, so known limitations are documented.
+- [ ] Manual Ubuntu 26.04 GNOME 50 Wayland results cover: text selection,
+  circle, paused video, multiple displays, 100% and 125% scaling (already
+  passed for the overlay), a revoked grant, and the first-run permission flow.
+- [ ] Keyboard and Orca findings are listed with their known limitations
   rather than unsupported claims.
-- [ ] The report recommends whether to retain Flutter/Python, change the OCR
-  adapter, run the production bake-off, or reopen native-service architecture
-  research.
+- [x] The report recommends whether to keep Flutter and Python, change the OCR
+  adapter, run the production OCR bake-off, or reopen native-service research.
+
+## Acceptance kit
+
+- Draft report: `.scratch/ubuntu-live-text-v0/acceptance/text-milestone-report.md`
+- OCR corpus evidence: `.scratch/ubuntu-live-text-v0/evidence/ocr-corpus-results.md`
+- Resource and privacy scripts: `scripts/acceptance/`

@@ -1,0 +1,73 @@
+{
+  "license": "CC0-1.0 equivalent procedural screenshots generated locally",
+  "font_policy": "Use DejaVu or Ubuntu fonts installed on the host; record exact font paths in results.",
+  "cases": [
+    {
+      "id": "web_article",
+      "kind": "light_article",
+      "expected_lines": [
+        "Kiriglyph keeps recognition local.",
+        "The overlay should copy only selected text.",
+        "Temporary captures are discarded after dismissal."
+      ],
+      "paragraphs": [[0, 1, 2]]
+    },
+    {
+      "id": "dark_code",
+      "kind": "dark_code",
+      "expected_lines": [
+        "def crop_display(frame):",
+        "    return frame.delete_private_copy()",
+        "assert network_calls == 0"
+      ],
+      "paragraphs": [[0, 1, 2]]
+    },
+    {
+      "id": "two_columns",
+      "kind": "two_columns",
+      "expected_lines": [
+        "Left column first line",
+        "Left column second line",
+        "Right column first line",
+        "Right column second line"
+      ],
+      "paragraphs": [[0, 1], [2, 3]]
+    },
+    {
+      "id": "ui_buttons",
+      "kind": "ui_buttons",
+      "expected_lines": [
+        "Enable instant capture",
+        "Copy all",
+        "Save PNG",
+        "Close"
+      ],
+      "paragraphs": [[0], [1, 2, 3]]
+    },
+    {
+      "id": "low_contrast_small",
+      "kind": "low_contrast_small",
+      "expected_lines": [
+        "Small low contrast caption",
+        "Fine print should be measured honestly."
+      ],
+      "paragraphs": [[0, 1]]
+    },
+    {
+      "id": "video_subtitle",
+      "kind": "video_subtitle",
+      "expected_lines": [
+        "Paused video subtitle stays local."
+      ],
+      "paragraphs": [[0]]
+    },
+    {
+      "id": "tilted_note",
+      "kind": "tilted",
+      "expected_lines": [
+        "Rotated text is diagnostic only."
+      ],
+      "paragraphs": [[0]]
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/protocol/protocol_error.dart';
-import 'package:ubuntu_live_text/protocol/worker_protocol.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/protocol/protocol_error.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
 
 Map<String, Object> _singleRangePayload(Map<String, Object?> patch) => {
   'image': {'width': 100, 'height': 40},

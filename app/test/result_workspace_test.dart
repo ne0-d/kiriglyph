@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
@@ -6,23 +6,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/protocol/protocol_error.dart';
-import 'package:ubuntu_live_text/selection/region_selection_provider.dart';
-import 'package:ubuntu_live_text/worker/ocr_worker.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/region_selection_provider.dart';
 
 import 'support/workspace_harness.dart';
 
 Finder _region(String id) => find.byKey(Key('ocr-region-$id'));
-Finder _row(String id) => find.byKey(Key('ocr-row-$id'));
 
 bool _isSelected(WidgetTester tester, Finder finder) =>
     tester.getSemantics(finder).flagsCollection.isSelected == Tristate.isTrue;
-
-List<String> _selectedRows(WidgetTester tester) => [
-  for (final id in const ['l1', 'l2', 'l3'])
-    if (_isSelected(tester, _row(id))) id,
-];
 
 List<String> _selectedRegions(WidgetTester tester) => [
   for (final id in const ['l1', 'l2', 'l3'])
@@ -33,8 +25,12 @@ List<String> _selectedRegions(WidgetTester tester) => [
 /// the displayed image. Derived from the rendered image rectangle rather than
 /// from app code, so it independently checks alignment.
 Offset _imagePoint(WidgetTester tester, double fx, double fy) {
-  final image = tester.getRect(find.byKey(const Key('capture-image')));
-  return Offset(image.left + image.width * fx, image.top + image.height * fy);
+  final frame = find.byKey(const Key('overlay-frame'));
+  final image = find.byKey(const Key('capture-image'));
+  final rect = tester.any(frame)
+      ? tester.getRect(frame)
+      : tester.getRect(image);
+  return Offset(rect.left + rect.width * fx, rect.top + rect.height * fy);
 }
 
 Future<void> _tapRegion(WidgetTester tester, String id) async {
@@ -49,6 +45,22 @@ Future<void> _shiftTapRegion(WidgetTester tester, String id) async {
   await tester.pump();
 }
 
+Future<void> _drawStroke(
+  WidgetTester tester,
+  List<Offset> points, {
+  Duration step = const Duration(milliseconds: 16),
+}) async {
+  final gesture = await tester.createGesture();
+  await gesture.down(points.first);
+  await tester.pump(step);
+  for (final point in points.skip(1)) {
+    await gesture.moveTo(point);
+    await tester.pump(step);
+  }
+  await gesture.up();
+  await tester.pump();
+}
+
 Future<String?> _clipboardText() async =>
     (await Clipboard.getData(Clipboard.kTextPlain))?.text;
 
@@ -57,35 +69,87 @@ String _selectedText(WidgetTester tester) => ProviderScope.containerOf(
 ).read(regionSelectionProvider).selectedText;
 
 Future<void> _openSample(
-  WidgetTester tester, {
+  WidgetTester tester,
+  Directory testRoot, {
   Size size = const Size(1280, 800),
 }) async {
-  await pumpApp(tester, worker: FakeWorker([sampleResult()]), size: size);
-  await openImage(tester);
+  await openOverlayCanvas(
+    tester,
+    testRoot: testRoot,
+    worker: FakeWorker([sampleResult()]),
+    size: size,
+  );
 }
 
-class _PendingWorker implements OcrWorker {
-  final Completer<OcrResult> _result = Completer<OcrResult>();
-
-  @override
-  Future<void> cancelActive() async {}
-
-  @override
-  Future<OcrResult> recognize(String imagePath) => _result.future;
-
-  void complete(OcrResult result) => _result.complete(result);
-
-  @override
-  Future<void> restart() async {}
-
-  @override
-  Future<void> close() async {}
-}
+OcrResult _paragraphClickResult() => resultWith([
+  box(
+    'p1a',
+    'abcd',
+    0,
+    20,
+    10,
+    100,
+    30,
+    ranges: [
+      for (var index = 0; index < 4; index++)
+        character(
+          index,
+          'abcd'[index],
+          20 + index * 20,
+          10,
+          40 + index * 20,
+          30,
+        ),
+    ],
+  ),
+  box(
+    'p1b',
+    'efgh',
+    1,
+    20,
+    35,
+    100,
+    55,
+    ranges: [
+      for (var index = 0; index < 4; index++)
+        character(
+          index,
+          'efgh'[index],
+          20 + index * 20,
+          35,
+          40 + index * 20,
+          55,
+        ),
+    ],
+  ),
+  box(
+    'p2a',
+    'wxyz',
+    2,
+    20,
+    80,
+    100,
+    100,
+    ranges: [
+      for (var index = 0; index < 4; index++)
+        character(
+          index,
+          'wxyz'[index],
+          20 + index * 20,
+          80,
+          40 + index * 20,
+          100,
+        ),
+    ],
+  ),
+]);
 
 void main() {
   String? clipboardText;
+  late Directory root;
 
   setUp(() {
+    root = Directory.systemTemp.createTempSync('result-workspace-');
     clipboardText = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -104,247 +168,31 @@ void main() {
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, null);
-  });
-
-  group('workspace presentation', () {
-    testWidgets('shows the file name, line count, duration and numbered lines '
-        'in reading order', (tester) async {
-      await _openSample(tester);
-
-      expect(find.text('receipt.png'), findsOneWidget);
-      expect(find.text('3 lines · 420 ms'), findsOneWidget);
-
-      final alpha = tester.getTopLeft(find.text('Alpha line'));
-      final beta = tester.getTopLeft(find.text('Beta line'));
-      final gamma = tester.getTopLeft(find.text('Gamma line'));
-      expect(alpha.dy, lessThan(beta.dy));
-      expect(beta.dy, lessThan(gamma.dy));
-
-      for (final (id, number) in const [
-        ('l1', '1'),
-        ('l2', '2'),
-        ('l3', '3'),
-      ]) {
-        expect(
-          find.descendant(of: _row(id), matching: find.text(number)),
-          findsOneWidget,
-          reason: 'row $id shows reading-order number $number',
-        );
-      }
-    });
-
-    testWidgets('recognized text is ordinary selectable text', (tester) async {
-      await _openSample(tester);
-
-      for (final line in const ['Alpha line', 'Beta line', 'Gamma line']) {
-        expect(
-          find.descendant(
-            of: find.byType(SelectionArea),
-            matching: find.text(line),
-          ),
-          findsOneWidget,
-          reason: '$line is inside a SelectionArea',
-        );
-      }
-    });
-
-    testWidgets('a result with no lines explains itself and disables copying', (
-      tester,
-    ) async {
-      await pumpApp(tester, worker: FakeWorker([resultWith(const [])]));
-      await openImage(tester);
-
-      expect(find.text('No text found'), findsOneWidget);
-      expect(
-        tester
-            .widget<ButtonStyleButton>(find.byKey(const Key('copy-all')))
-            .onPressed,
-        isNull,
-      );
-    });
-
-    testWidgets('recognition failure shows the message and allows another '
-        'image', (tester) async {
-      final worker = FakeWorker([
-        WorkerError(code: 'ocr_failed', message: 'Engine exploded.'),
-        sampleResult(),
-      ]);
-      await pumpApp(tester, worker: worker);
-
-      await openImage(tester);
-      expect(
-        find.text('Text recognition failed. Try another image.'),
-        findsOneWidget,
-      );
-      expect(find.text('Engine exploded.'), findsNothing);
-      expect(find.text('Could not recognize text'), findsOneWidget);
-
-      await openImage(tester);
-      expect(_region('l1'), findsOneWidget);
-    });
-
-    testWidgets('recognizing shows progress and no stale regions', (
-      tester,
-    ) async {
-      final picker = FakePicker();
-      final worker = _PendingWorker();
-      await pumpApp(tester, picker: picker, worker: worker);
-
-      await tester.tap(find.byKey(const Key('open-image-fab')));
-      await tester.pump();
-
-      expect(find.text('Local OCR'), findsOneWidget);
-      expect(_region('l1'), findsNothing);
-
-      worker.complete(sampleResult());
-      await tester.pump();
-    });
-
-    testWidgets('recognition can be cancelled without waiting for the worker', (
-      tester,
-    ) async {
-      await pumpApp(tester, worker: _PendingWorker());
-
-      await tester.tap(find.byKey(const Key('open-image-fab')));
-      await tester.pump();
-      expect(find.byKey(const Key('cancel-recognition')), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('cancel-recognition')));
-      await tester.pump();
-
-      expect(find.text('Open an image'), findsOneWidget);
-      expect(find.text('Local OCR'), findsNothing);
-    });
-
-    testWidgets('a failed recognition can retry the same image', (
-      tester,
-    ) async {
-      final picker = FakePicker(path: '/tmp/retry.png');
-      final worker = FakeWorker([
-        WorkerError(code: 'ocr_failed', message: 'private engine detail'),
-        sampleResult(),
-      ]);
-      await pumpApp(tester, picker: picker, worker: worker);
-
-      await openImage(tester);
-      expect(
-        find.text('Text recognition failed. Try another image.'),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('retry-recognition')), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('retry-recognition')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
-
-      expect(_region('l1'), findsOneWidget);
-      expect(picker.calls, 1);
-      expect(worker.calls, 2);
-    });
-  });
-
-  group('responsive layout', () {
-    for (final (label, size) in const [
-      ('wide desktop', Size(1280, 800)),
-      ('medium window', Size(900, 600)),
-      ('narrow window', Size(800, 600)),
-      ('phone-width window', Size(360, 640)),
-      ('very short window', Size(640, 300)),
-    ]) {
-      testWidgets('does not overflow in a $label', (tester) async {
-        await _openSample(tester, size: size);
-
-        expect(tester.takeException(), isNull);
-        expect(_region('l1'), findsOneWidget);
-        expect(find.text('Copy all'), findsOneWidget);
-
-        // Still fine once a selection and feedback are showing.
-        await _tapRegion(tester, 'l1');
-        await tester.pump();
-        await tester.tap(find.byKey(const Key('copy-selection')));
-        await tester.pump();
-        expect(tester.takeException(), isNull);
-        await tester.pump(const Duration(seconds: 3));
-      });
-    }
-
-    testWidgets('places the text panel beside the canvas when wide', (
-      tester,
-    ) async {
-      await _openSample(tester, size: const Size(1280, 800));
-
-      final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
-      final panel = tester.getRect(find.byKey(const Key('text-panel')));
-      expect(canvas.right, lessThanOrEqualTo(panel.left));
-      expect(canvas.left, lessThan(panel.left));
-    });
-
-    testWidgets('stacks the text panel below the canvas when narrow', (
-      tester,
-    ) async {
-      await _openSample(tester, size: const Size(700, 700));
-
-      final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
-      final panel = tester.getRect(find.byKey(const Key('text-panel')));
-      expect(canvas.bottom, lessThanOrEqualTo(panel.top));
-      expect(panel.width, closeTo(canvas.width, 1));
-    });
-
-    testWidgets('recovery controls do not overflow in a compact window', (
-      tester,
-    ) async {
-      await pumpApp(
-        tester,
-        worker: _PendingWorker(),
-        size: const Size(360, 640),
-      );
-      await tester.tap(find.byKey(const Key('open-image-fab')));
-      await tester.pump();
-      expect(find.byKey(const Key('cancel-recognition')), findsOneWidget);
-      expect(tester.takeException(), isNull);
-
-      await tester.tap(find.byKey(const Key('cancel-recognition')));
-      await tester.pump();
-      await pumpApp(
-        tester,
-        worker: FakeWorker([
-          WorkerError(code: 'ocr_failed', message: 'private detail'),
-        ]),
-        size: const Size(360, 640),
-      );
-      await openImage(tester);
-      expect(find.byKey(const Key('retry-recognition')), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+    root.deleteSync(recursive: true);
   });
 
   group('region geometry', () {
     testWidgets(
       'the image keeps its aspect ratio and stays inside the canvas',
       (tester) async {
-        await _openSample(tester);
+        await _openSample(tester, root);
 
-        final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
-        final image = tester.getRect(find.byKey(const Key('capture-image')));
+        final image = tester.getRect(find.byKey(const Key('overlay-frame')));
         expect(
           image.width / image.height,
           closeTo(kImageWidth / kImageHeight, 0.01),
         );
-        expect(canvas.contains(image.topLeft), isTrue);
-        expect(canvas.contains(image.bottomRight), isTrue);
+        expect(image.topLeft.dx, greaterThanOrEqualTo(0));
+        expect(image.topLeft.dy, greaterThanOrEqualTo(0));
       },
     );
 
-    for (final size in const [
-      Size(1280, 800),
-      Size(800, 600),
-      Size(480, 700),
-    ]) {
+    for (final size in const [Size(1280, 800), Size(800, 600)]) {
       testWidgets('regions line up with the image at ${size.width.toInt()}x'
           '${size.height.toInt()}', (tester) async {
-        await _openSample(tester, size: size);
+        await _openSample(tester, root, size: size);
 
-        final image = tester.getRect(find.byKey(const Key('capture-image')));
+        final image = tester.getRect(find.byKey(const Key('overlay-frame')));
         // l1 covers x 20..180 and y 10..25 of the 200 x 100 source image.
         final rect = tester.getRect(_region('l1'));
         expect(rect.left, closeTo(image.left + image.width * 0.10, 0.5));
@@ -356,11 +204,11 @@ void main() {
     testWidgets('alignment follows the image when the window is resized', (
       tester,
     ) async {
-      await _openSample(tester, size: const Size(1280, 800));
+      await _openSample(tester, root, size: const Size(1280, 800));
       tester.view.physicalSize = const Size(900, 650);
       await tester.pump();
 
-      final image = tester.getRect(find.byKey(const Key('capture-image')));
+      final image = tester.getRect(find.byKey(const Key('overlay-frame')));
       final rect = tester.getRect(_region('l1'));
       expect(rect.left, closeTo(image.left + image.width * 0.10, 0.5));
 
@@ -370,35 +218,8 @@ void main() {
       expect(_selectedRegions(tester), ['l1']);
     });
 
-    testWidgets('alignment follows the image while zoomed', (tester) async {
-      await _openSample(tester);
-
-      final originalImage = tester.getRect(
-        find.byKey(const Key('capture-image')),
-      );
-      await tester.tap(find.byKey(const Key('zoom-in')));
-      await tester.pump();
-
-      final image = tester.getRect(find.byKey(const Key('capture-image')));
-      final rect = tester.getRect(_region('l1'));
-      expect(image.width, greaterThan(originalImage.width));
-      expect(rect.left, closeTo(image.left + image.width * 0.10, 0.5));
-      expect(rect.right, closeTo(image.left + image.width * 0.90, 0.5));
-
-      await tester.tapAt(_imagePoint(tester, 0.5, 0.175));
-      await tester.pump();
-      expect(_selectedRegions(tester), ['l1']);
-
-      await tester.tap(find.byKey(const Key('zoom-reset')));
-      await tester.pump();
-      expect(
-        tester.getRect(find.byKey(const Key('capture-image'))),
-        originalImage,
-      );
-    });
-
     testWidgets('tapping where a region is drawn selects it', (tester) async {
-      await _openSample(tester);
+      await _openSample(tester, root);
 
       // Centre of l2: x 20..120 -> 0.35, y 40..55 -> 0.475.
       await tester.tapAt(_imagePoint(tester, 0.35, 0.475));
@@ -416,10 +237,9 @@ void main() {
           box('speck', 'Speck', 3, 150, 80, 152, 82),
         ]),
       ]);
-      await pumpApp(tester, worker: worker);
-      await openImage(tester);
+      await openOverlayCanvas(tester, testRoot: root, worker: worker);
 
-      final image = tester.getRect(find.byKey(const Key('capture-image')));
+      final image = tester.getRect(find.byKey(const Key('overlay-frame')));
       final centre = Offset(
         image.left + image.width * (151 / kImageWidth),
         image.top + image.height * (81 / kImageHeight),
@@ -436,12 +256,15 @@ void main() {
     testWidgets('clicking a character selects and copies only that character', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
 
       await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
       await tester.pump();
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
 
       expect(await _clipboardText(), 'b');
@@ -449,10 +272,13 @@ void main() {
     });
 
     testWidgets(
-      'single, double, and triple click select character, word, line',
+      'single, double, and triple click select character, word, paragraph',
       (tester) async {
-        await pumpApp(tester, worker: FakeWorker([wordCharacterResult()]));
-        await openImage(tester);
+        await openOverlayCanvas(
+          tester,
+          testRoot: root,
+          worker: FakeWorker([wordCharacterResult()]),
+        );
         final point = _imagePoint(tester, 0.475, 0.20);
 
         await tester.tapAt(point);
@@ -469,33 +295,71 @@ void main() {
       },
     );
 
-    testWidgets('character hit testing stays aligned after zoom', (
+    testWidgets('triple-click selects a multi-line paragraph', (tester) async {
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([_paragraphClickResult()]),
+      );
+
+      final point = _imagePoint(tester, 0.25, 0.45);
+      for (var click = 0; click < 3; click++) {
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(_selectedText(tester), 'abcd\nefgh');
+    });
+
+    testWidgets('triple-click selects a one-line paragraph', (tester) async {
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([_paragraphClickResult()]),
+      );
+
+      final point = _imagePoint(tester, 0.25, 0.90);
+      for (var click = 0; click < 3; click++) {
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(_selectedText(tester), 'wxyz');
+    });
+
+    testWidgets('triple-click keeps adjacent paragraphs separate', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
-      await tester.tap(find.byKey(const Key('zoom-in')));
-      await tester.pump();
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([_paragraphClickResult()]),
+      );
 
-      await tester.tapAt(_imagePoint(tester, 0.35, 0.20));
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('copy-selection')));
-      await tester.pump();
+      final point = _imagePoint(tester, 0.25, 0.20);
+      for (var click = 0; click < 3; click++) {
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+      }
 
-      expect(await _clipboardText(), 'c');
+      expect(_selectedText(tester), 'abcd\nefgh');
+      expect(_selectedText(tester), isNot(contains('wxyz')));
     });
 
     testWidgets('empty space inside a line box clears character selection', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([sparseCharacterResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([sparseCharacterResult()]),
+      );
       await tester.tapAt(_imagePoint(tester, 0.15, 0.20));
       await tester.pump();
 
       expect(
         tester
-            .widget<ButtonStyleButton>(find.byKey(const Key('copy-selection')))
+            .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy')))
             .onPressed,
         isNotNull,
       );
@@ -505,58 +369,132 @@ void main() {
 
       expect(
         tester
-            .widget<ButtonStyleButton>(find.byKey(const Key('copy-selection')))
+            .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy')))
             .onPressed,
         isNull,
       );
     });
 
-    testWidgets('dragging empty image space pans while zoomed', (tester) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
-      await tester.tap(find.byKey(const Key('zoom-in')));
-      await tester.tap(find.byKey(const Key('zoom-in')));
-      await tester.pump();
-
-      final before = tester.getRect(find.byKey(const Key('capture-image')));
-      final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
-      await tester.dragFrom(
-        Offset(canvas.center.dx, canvas.bottom - 80),
-        const Offset(-100, -80),
-      );
-      await tester.pump();
-      final after = tester.getRect(find.byKey(const Key('capture-image')));
-
-      expect(after.topLeft, isNot(before.topLeft));
-    });
-
     testWidgets('dragging across characters copies the exact partial range', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
 
       final start = _imagePoint(tester, 0.225, 0.20);
       final end = _imagePoint(tester, 0.475, 0.20);
       await tester.dragFrom(start, end - start);
       await tester.pump();
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
 
       expect(await _clipboardText(), 'bcd');
     });
 
+    testWidgets('dragging off text circles and copies enclosed characters', (
+      tester,
+    ) async {
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
+
+      await _drawStroke(tester, [
+        _imagePoint(tester, 0.175, 0.05),
+        _imagePoint(tester, 0.425, 0.05),
+        _imagePoint(tester, 0.425, 0.35),
+        _imagePoint(tester, 0.175, 0.35),
+        _imagePoint(tester, 0.175, 0.05),
+      ]);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(await _clipboardText(), 'abcd');
+    });
+
+    testWidgets('freehand stroke fades after release', (tester) async {
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
+      final points = [
+        _imagePoint(tester, 0.175, 0.05),
+        _imagePoint(tester, 0.425, 0.05),
+        _imagePoint(tester, 0.425, 0.35),
+        _imagePoint(tester, 0.175, 0.35),
+        _imagePoint(tester, 0.175, 0.05),
+      ];
+      final gesture = await tester.createGesture();
+      await gesture.down(points.first);
+      await tester.pump();
+      await gesture.moveTo(points[1]);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('freehand-selection-stroke')),
+        findsOneWidget,
+      );
+
+      for (final point in points.skip(2)) {
+        await gesture.moveTo(point);
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 299));
+      expect(
+        find.byKey(const Key('freehand-selection-stroke')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 51));
+      await tester.pump();
+      expect(find.byKey(const Key('freehand-selection-stroke')), findsNothing);
+    });
+
+    testWidgets('reduced motion clears freehand stroke immediately', (
+      tester,
+    ) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
+
+      await _drawStroke(tester, [
+        _imagePoint(tester, 0.175, 0.05),
+        _imagePoint(tester, 0.425, 0.05),
+        _imagePoint(tester, 0.425, 0.35),
+        _imagePoint(tester, 0.175, 0.35),
+        _imagePoint(tester, 0.175, 0.05),
+      ]);
+
+      expect(find.byKey(const Key('freehand-selection-stroke')), findsNothing);
+    });
+
     testWidgets('backward dragging spans lines in reading order', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([multilineCharacterResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([multilineCharacterResult()]),
+      );
 
       final start = _imagePoint(tester, 0.275, 0.50);
       final end = _imagePoint(tester, 0.125, 0.20);
       await tester.dragFrom(start, end - start);
       await tester.pump();
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
 
       expect(await _clipboardText(), 'ab\ncd');
@@ -565,8 +503,11 @@ void main() {
     testWidgets('arrow keys replace and extend the character selection', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
       await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
       await tester.pump();
 
@@ -591,8 +532,11 @@ void main() {
     testWidgets('Ctrl+A then Ctrl+C copies all recognized text', (
       tester,
     ) async {
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
       await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
       await tester.pump();
 
@@ -610,112 +554,16 @@ void main() {
       tester,
     ) async {
       final handle = tester.ensureSemantics();
-      await pumpApp(tester, worker: FakeWorker([characterSampleResult()]));
-      await openImage(tester);
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([characterSampleResult()]),
+      );
 
       final node = tester.getSemantics(
         find.byKey(const Key('ocr-character-line-l1')),
       );
-      expect(node.label, contains('abcd'));
-      expect(node.label, contains('Character selection available'));
-      expect(node.flagsCollection.isButton, isTrue);
-      handle.dispose();
-    });
-
-    testWidgets('clicking a region selects it and its text row together', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-
-      await _tapRegion(tester, 'l2');
-      await tester.pump();
-
-      expect(_selectedRegions(tester), ['l2']);
-      expect(_selectedRows(tester), ['l2']);
-      handle.dispose();
-    });
-
-    testWidgets('clicking another region replaces the selection', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-
-      await _tapRegion(tester, 'l1');
-      await _tapRegion(tester, 'l3');
-      await tester.pump();
-
-      expect(_selectedRegions(tester), ['l3']);
-      expect(_selectedRows(tester), ['l3']);
-      handle.dispose();
-    });
-
-    testWidgets('shift-click extends a contiguous range in both directions', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-
-      await _tapRegion(tester, 'l1');
-      await _shiftTapRegion(tester, 'l3');
-      expect(_selectedRegions(tester), ['l1', 'l2', 'l3']);
-      expect(_selectedRows(tester), ['l1', 'l2', 'l3']);
-
-      await _tapRegion(tester, 'l3');
-      await _shiftTapRegion(tester, 'l2');
-      expect(_selectedRegions(tester), ['l2', 'l3']);
-      handle.dispose();
-    });
-
-    testWidgets('clicking empty canvas clears the selection', (tester) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-      await _tapRegion(tester, 'l1');
-      await tester.pump();
-
-      final canvas = tester.getRect(find.byKey(const Key('capture-canvas')));
-      await tester.tapAt(canvas.topLeft + const Offset(4, 4));
-      await tester.pump();
-
-      expect(_selectedRegions(tester), isEmpty);
-      expect(_selectedRows(tester), isEmpty);
-      handle.dispose();
-    });
-
-    testWidgets('regions are focusable and keyboard activatable', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-
-      final focusNode = Focus.of(
-        tester.element(
-          find
-              .descendant(
-                of: _region('l2'),
-                matching: find.byType(GestureDetector),
-              )
-              .first,
-        ),
-      );
-      focusNode.requestFocus();
-      await tester.pump();
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.pump();
-
-      expect(_selectedRegions(tester), ['l2']);
-      handle.dispose();
-    });
-
-    testWidgets('regions are exposed to assistive technology with their text', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _openSample(tester);
-
-      final node = tester.getSemantics(_region('l1'));
-      expect(node.label, contains('Alpha line'));
+      expect(node.label, 'Line 1: abcd');
       expect(node.flagsCollection.isButton, isTrue);
       handle.dispose();
     });
@@ -725,61 +573,83 @@ void main() {
     testWidgets('Copy selection is enabled only while lines are selected', (
       tester,
     ) async {
-      await _openSample(tester);
+      await _openSample(tester, root);
 
       bool enabled(String key) =>
           tester.widget<ButtonStyleButton>(find.byKey(Key(key))).onPressed !=
           null;
 
-      expect(enabled('copy-selection'), isFalse);
-      expect(enabled('copy-all'), isTrue);
+      expect(enabled('overlay-copy'), isFalse);
+      expect(enabled('overlay-copy-all'), isTrue);
 
       await _tapRegion(tester, 'l1');
       await tester.pump();
-      expect(enabled('copy-selection'), isTrue);
+      expect(enabled('overlay-copy'), isTrue);
 
       await tester.tapAt(
         tester.getRect(find.byKey(const Key('capture-canvas'))).topLeft +
             const Offset(4, 4),
       );
       await tester.pump();
-      expect(enabled('copy-selection'), isFalse);
-      expect(enabled('copy-all'), isTrue);
+      expect(enabled('overlay-copy'), isFalse);
+      expect(enabled('overlay-copy-all'), isTrue);
     });
 
     testWidgets('Copy selection copies only selected lines in reading order', (
       tester,
     ) async {
-      await _openSample(tester);
+      await _openSample(tester, root);
       await _tapRegion(tester, 'l3');
       await _shiftTapRegion(tester, 'l2');
 
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
 
-      expect(await _clipboardText(), 'Beta line\nGamma line');
+      expect(await _clipboardText(), 'Beta line\n\nGamma line');
       await tester.pump(const Duration(seconds: 3));
     });
 
-    testWidgets('Copy all copies every line in reading order', (tester) async {
-      await _openSample(tester);
+    testWidgets('Copy selection separates selected paragraphs', (tester) async {
+      await openOverlayCanvas(
+        tester,
+        testRoot: root,
+        worker: FakeWorker([_paragraphClickResult()]),
+      );
+      await tester.tapAt(_imagePoint(tester, 0.25, 0.20));
+      await tester.pump();
 
-      await tester.tap(find.byKey(const Key('copy-all')));
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyC);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+
+      expect(await _clipboardText(), 'abcd\nefgh\n\nwxyz');
+    });
+
+    testWidgets('Copy all copies every line in reading order', (tester) async {
+      await _openSample(tester, root);
+
+      await tester.tap(find.byKey(const Key('overlay-copy-all')));
       await tester.pump();
 
       expect(await _clipboardText(), 'Alpha line\nBeta line\nGamma line');
       await tester.pump(const Duration(seconds: 3));
     });
 
-    testWidgets('copying announces short feedback that then disappears', (
-      tester,
-    ) async {
+    testWidgets('copying shows short feedback that then disappears, as a live '
+        'region where announcing is unsupported', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures();
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
       final handle = tester.ensureSemantics();
-      await _openSample(tester);
+      await _openSample(tester, root);
       await _tapRegion(tester, 'l1');
       await _shiftTapRegion(tester, 'l2');
 
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
       expect(find.text('Copied 2 lines'), findsOneWidget);
       expect(
@@ -790,7 +660,7 @@ void main() {
         isTrue,
       );
 
-      await tester.tap(find.byKey(const Key('copy-all')));
+      await tester.tap(find.byKey(const Key('overlay-copy-all')));
       await tester.pump();
       expect(find.text('Copied all 3 lines'), findsOneWidget);
       expect(find.text('Copied 2 lines'), findsNothing);
@@ -801,9 +671,9 @@ void main() {
     });
 
     testWidgets('a single line is described in the singular', (tester) async {
-      await _openSample(tester);
+      await _openSample(tester, root);
       await _tapRegion(tester, 'l1');
-      await tester.tap(find.byKey(const Key('copy-selection')));
+      await tester.tap(find.byKey(const Key('overlay-copy')));
       await tester.pump();
 
       expect(find.text('Copied 1 line'), findsOneWidget);
@@ -826,77 +696,13 @@ void main() {
           null,
         ),
       );
-      await _openSample(tester);
+      await _openSample(tester, root);
 
-      await tester.tap(find.byKey(const Key('copy-all')));
+      await tester.tap(find.byKey(const Key('overlay-copy-all')));
       await tester.pump();
 
       expect(find.text('Could not copy. Try again.'), findsOneWidget);
       await tester.pump(const Duration(seconds: 4));
-    });
-  });
-
-  group('session lifecycle', () {
-    testWidgets('New image discards the session and returns to the empty '
-        'state', (tester) async {
-      final worker = FakeWorker([sampleResult()]);
-      await pumpApp(tester, worker: worker);
-      await openImage(tester);
-      await _tapRegion(tester, 'l1');
-      await tester.pump();
-
-      await tester.tap(find.byKey(const Key('new-image')));
-      await tester.pump();
-
-      expect(find.text('Open an image'), findsOneWidget);
-      expect(_region('l1'), findsNothing);
-      expect(find.text('Alpha line'), findsNothing);
-
-      // A fresh session starts with nothing selected.
-      final handle = tester.ensureSemantics();
-      await openImage(tester);
-      expect(worker.calls, 2);
-      expect(_selectedRegions(tester), isEmpty);
-      expect(_selectedRows(tester), isEmpty);
-      handle.dispose();
-    });
-
-    testWidgets('opening another image discards the previous selection', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      final worker = FakeWorker([sampleResult()]);
-      await pumpApp(tester, worker: worker);
-      await openImage(tester);
-      await _tapRegion(tester, 'l1');
-      await tester.pump();
-      expect(_selectedRegions(tester), ['l1']);
-
-      await openImage(tester);
-
-      expect(worker.calls, 2);
-      expect(_selectedRegions(tester), isEmpty);
-      expect(_selectedRows(tester), isEmpty);
-      handle.dispose();
-    });
-
-    testWidgets('cancelling the picker keeps the current session', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      final picker = FakePicker();
-      final worker = FakeWorker([sampleResult()]);
-      await pumpApp(tester, picker: picker, worker: worker);
-      await openImage(tester);
-      await _tapRegion(tester, 'l1');
-      await tester.pump();
-
-      picker.path = null;
-      await openImage(tester);
-
-      expect(worker.calls, 1);
-      expect(_selectedRegions(tester), ['l1']);
-      handle.dispose();
     });
   });
 }

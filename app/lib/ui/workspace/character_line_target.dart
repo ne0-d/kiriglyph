@@ -1,11 +1,13 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/selection/region_selection_provider.dart';
-import 'package:ubuntu_live_text/ui/workspace/character_range_painter.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/region_selection_provider.dart';
+import 'package:kiriglyph/theme/app_theme.dart';
+import 'package:kiriglyph/ui/workspace/character_range_painter.dart';
 
 typedef CharacterTapCallback = void Function(Offset position, int clickCount);
 
@@ -13,7 +15,9 @@ class CharacterLineTarget extends ConsumerStatefulWidget {
   const CharacterLineTarget({
     super.key,
     required this.region,
+    this.focusable = true,
     required this.readingIndex,
+    required this.linePolygon,
     required this.polygons,
     required this.onTap,
     required this.onDragStart,
@@ -21,7 +25,12 @@ class CharacterLineTarget extends ConsumerStatefulWidget {
   });
 
   final TextRegion region;
+
+  /// Whether Tab can stop on this line. The overlay turns it off: the canvas
+  /// owns the keyboard there, and a stop per line would bury the toolbar.
+  final bool focusable;
   final int readingIndex;
+  final List<Offset> linePolygon;
   final List<List<Offset>> polygons;
   final CharacterTapCallback onTap;
   final bool Function(Offset) onDragStart;
@@ -33,6 +42,11 @@ class CharacterLineTarget extends ConsumerStatefulWidget {
 }
 
 class _CharacterLineTargetState extends ConsumerState<CharacterLineTarget> {
+  late final FocusNode _focusNode = FocusNode(
+    debugLabel: 'recognized line',
+    canRequestFocus: widget.focusable,
+    skipTraversal: !widget.focusable,
+  );
   bool _focused = false;
   int? _activePointer;
   Offset? _downPosition;
@@ -40,6 +54,12 @@ class _CharacterLineTargetState extends ConsumerState<CharacterLineTarget> {
   Duration? _lastTapTime;
   Offset? _lastTapPosition;
   int _clickCount = 0;
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
 
   void _pointerDown(PointerDownEvent event) {
     if (event.buttons & kPrimaryButton == 0) {
@@ -120,9 +140,6 @@ class _CharacterLineTargetState extends ConsumerState<CharacterLineTarget> {
   @override
   Widget build(BuildContext context) {
     final selection = ref.watch(regionSelectionProvider);
-    final hovered = ref.watch(
-      hoveredRegionProvider.select((id) => id == widget.region.id),
-    );
     final hover = ref.read(hoveredRegionProvider.notifier);
     final selected = [
       for (final range in widget.region.ranges)
@@ -134,11 +151,11 @@ class _CharacterLineTargetState extends ConsumerState<CharacterLineTarget> {
         container: true,
         button: true,
         selected: selection.isSelected(widget.region.id),
-        label:
-            'Line ${widget.readingIndex + 1}: ${widget.region.text}. '
-            'Character selection available.',
+        sortKey: OrdinalSortKey(widget.readingIndex.toDouble()),
+        label: 'Line ${widget.readingIndex + 1}: ${widget.region.text}',
         onTap: _activate,
         child: FocusableActionDetector(
+          focusNode: _focusNode,
           mouseCursor: SystemMouseCursors.text,
           onShowFocusHighlight: (value) => setState(() => _focused = value),
           onShowHoverHighlight: (value) => value
@@ -168,11 +185,17 @@ class _CharacterLineTargetState extends ConsumerState<CharacterLineTarget> {
               onPointerMove: _pointerMove,
               onPointerUp: _pointerUp,
               onPointerCancel: _pointerCancel,
-              child: CustomPaint(
-                painter: CharacterRangePainter(
-                  polygons: widget.polygons,
-                  selected: selected,
-                  hovered: hovered || _focused,
+              child: SizedBox.expand(
+                child: CustomPaint(
+                  painter: CharacterRangePainter(
+                    polygons: widget.polygons,
+                    linePolygon: widget.linePolygon,
+                    selected: selected,
+                    focused: _focused,
+                    selectionColor:
+                        Theme.of(context).textSelectionTheme.selectionColor ??
+                        AppColors.ubuntuOrange.withValues(alpha: 0.30),
+                  ),
                 ),
               ),
             ),

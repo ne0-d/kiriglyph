@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:ubuntu_live_text/ocr/ocr_result.dart';
-import 'package:ubuntu_live_text/protocol/protocol_error.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/protocol/protocol_error.dart';
 
 const protocolVersion = 1;
 

@@ -4,7 +4,7 @@ abstract final class AppColors {
   /// Ubuntu orange: primary actions and selected OCR regions only.
   static const ubuntuOrange = Color(0xFFE95420);
 
-  /// Header and application chrome.
+  /// Workspace chrome accent used over the dark image-inspection surface.
   static const aubergine = Color(0xFF2C2027);
 
   /// Dark image-inspection surface.
@@ -13,7 +13,7 @@ abstract final class AppColors {
   /// Recognized-text panel.
   static const paper = Color(0xFFFFFFFF);
 
-  /// Window background behind the panels.
+  /// Workspace row background for unselected recognized text.
   static const shell = Color(0xFFF4F2F1);
 
   static const muted = Color(0xFF71676B);
@@ -33,69 +33,21 @@ const appFontFallback = [
   'sans-serif',
 ];
 
-ThemeData buildAppTheme() {
-  const colorScheme = ColorScheme.light(
-    surface: AppColors.shell,
-    onSurface: AppColors.ink,
-    primary: AppColors.ubuntuOrange,
-    onPrimary: Colors.white,
-    secondary: AppColors.aubergine,
-    outline: AppColors.muted,
-    outlineVariant: AppColors.hairline,
-  );
-
-  final buttonShape = RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(4),
-  );
-  const buttonPadding = EdgeInsets.symmetric(horizontal: 16, vertical: 10);
-  const buttonText = TextStyle(fontSize: 14, fontWeight: FontWeight.w600);
-
-  return ThemeData(
-    useMaterial3: true,
-    colorScheme: colorScheme,
-    fontFamily: appFontFamily,
-    fontFamilyFallback: appFontFallback,
-    scaffoldBackgroundColor: AppColors.shell,
-    textTheme: Typography.material2021().black.apply(
-      bodyColor: AppColors.ink,
-      displayColor: AppColors.ink,
+ThemeData buildAppTheme(ThemeData base) {
+  return base.copyWith(
+    textTheme: base.textTheme.apply(
+      fontFamily: appFontFamily,
+      fontFamilyFallback: appFontFallback,
     ),
     visualDensity: VisualDensity.compact,
-    dividerTheme: const DividerThemeData(
-      color: AppColors.hairline,
+    dividerTheme: DividerThemeData(
+      color: base.colorScheme.outlineVariant,
       thickness: 1,
       space: 1,
     ),
     textSelectionTheme: TextSelectionThemeData(
-      selectionColor: AppColors.aubergine.withValues(alpha: 0.28),
-    ),
-    filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        backgroundColor: AppColors.ubuntuOrange,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: AppColors.hairline,
-        disabledForegroundColor: AppColors.muted,
-        padding: buttonPadding,
-        shape: buttonShape,
-        textStyle: buttonText,
-      ),
-    ),
-    outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.ink,
-        disabledForegroundColor: AppColors.muted.withValues(alpha: 0.6),
-        side: const BorderSide(color: AppColors.hairline),
-        padding: buttonPadding,
-        shape: buttonShape,
-        textStyle: buttonText,
-      ),
-    ),
-    textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(
-        padding: buttonPadding,
-        shape: buttonShape,
-        textStyle: buttonText,
-      ),
+      cursorColor: base.colorScheme.onSurface,
+      selectionColor: base.colorScheme.primary.withValues(alpha: 0.32),
     ),
   );
 }

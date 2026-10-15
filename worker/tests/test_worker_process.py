@@ -266,7 +266,7 @@ def test_unsupported_method_returns_typed_error(
 def test_missing_image_returns_image_unreadable(
     worker_process, schema_store, schema_registry
 ):
-    missing = Path("/tmp/live-text-worker-does-not-exist.png")
+    missing = Path("/tmp/kiriglyph-worker-does-not-exist.png")
     write_request(worker_process, recognize_request("missing-image", missing))
     response = parse_response_line(read_response_line(worker_process))
     validate(response, schema_store["response_error"], schema_registry)
@@ -349,7 +349,7 @@ def test_installed_console_entry_point_via_uv(schema_store, schema_registry):
             str(uv),
             "run",
             "--locked",
-            "live-text-worker",
+            "kiriglyph-worker",
         ],
         input=json.dumps(recognize_request("console-entry", REAL_OCR_IMAGE)) + "\n",
         cwd=WORKER_ROOT,

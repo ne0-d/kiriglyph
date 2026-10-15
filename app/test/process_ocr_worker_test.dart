@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ubuntu_live_text/protocol/protocol_error.dart';
-import 'package:ubuntu_live_text/worker/process_ocr_worker.dart';
+import 'package:kiriglyph/protocol/protocol_error.dart';
+import 'package:kiriglyph/worker/process_ocr_worker.dart';
 
 const _splitUtf8Responder = r'''
 import json
@@ -278,7 +278,7 @@ void main() {
   test('reports worker startup failure as a typed failure', () async {
     final worker = ProcessOcrWorker(
       WorkerLaunchConfig(
-        executable: '/definitely/missing/live-text-worker',
+        executable: '/definitely/missing/kiriglyph-worker',
         arguments: const [],
         environment: Platform.environment,
       ),
@@ -367,7 +367,7 @@ void main() {
     'close force-terminates an unresponsive worker without orphaning it',
     () async {
       final directory = await Directory.systemTemp.createTemp(
-        'live-text-worker-close-',
+        'kiriglyph-worker-close-',
       );
       addTearDown(() => directory.delete(recursive: true));
       final pidFile = File('${directory.path}/pid');
@@ -408,7 +408,7 @@ void main() {
 
   test('close shuts down a cooperative worker through stdin EOF', () async {
     final directory = await Directory.systemTemp.createTemp(
-      'live-text-worker-eof-',
+      'kiriglyph-worker-eof-',
     );
     addTearDown(() => directory.delete(recursive: true));
     final marker = File('${directory.path}/closed');

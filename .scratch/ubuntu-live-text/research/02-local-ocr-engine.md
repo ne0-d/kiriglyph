@@ -1,4 +1,4 @@
-# Local OCR engine research for Ubuntu Live Text
+# Local OCR engine research for Kiriglyph
 
 Target: Ubuntu 24.04 LTS or newer, x86-64 CPU first, fully offline at runtime  
 Ticket: [02-local-ocr-engine](../issues/02-local-ocr-engine.md)

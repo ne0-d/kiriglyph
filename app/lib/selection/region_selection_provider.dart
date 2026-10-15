@@ -1,20 +1,26 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:ubuntu_live_text/capture/capture_session.dart';
-import 'package:ubuntu_live_text/selection/region_selection.dart';
-import 'package:ubuntu_live_text/selection/text_word_boundary.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/selection/paragraph_grouping.dart';
+import 'package:kiriglyph/selection/region_selection.dart';
+import 'package:kiriglyph/selection/text_word_boundary.dart';
 
-/// Line selection for the active capture session.
+/// The OCR result shown in the active selection overlay.
+OcrResult? _watchActiveResult(Ref ref) {
+  return ref.watch(
+    selectionOverlayProvider.select((overlay) => overlay.ocrResult),
+  );
+}
+
+/// Line selection for the active OCR result.
 ///
-/// The selection is rebuilt from scratch whenever the session's OCR result
-/// changes, so retrying, starting a new image, or opening another image never
-/// carries a selection into the next session.
+/// The selection is rebuilt from scratch whenever the active result changes,
+/// so each new overlay session never carries a selection forward.
 class RegionSelectionController extends Notifier<RegionSelection> {
   @override
   RegionSelection build() {
-    final result = ref.watch(
-      captureSessionProvider.select((session) => session.ocrResult),
-    );
+    final result = _watchActiveResult(ref);
     return RegionSelection(result?.regions ?? const []);
   }
 
@@ -36,6 +42,9 @@ class RegionSelectionController extends Notifier<RegionSelection> {
     }
   }
 
+  void selectLineRanges(Map<String, (int, int)> ranges) =>
+      state = state.selectLineRanges(ranges);
+
   void startAt(TextPosition position) => state = state.startAt(position);
 
   void extendToPosition(TextPosition position) =>
@@ -48,6 +57,14 @@ class RegionSelectionController extends Notifier<RegionSelection> {
 
   void moveVertical(int direction, {required bool extend}) =>
       state = state.moveVertical(direction, extend: extend);
+
+  /// Keyboard selection by whole paragraphs: [direction] 1 is down.
+  void extendByParagraph(List<TextParagraph> paragraphs, int direction) =>
+      state = extendSelectionByParagraph(
+        state,
+        paragraphs,
+        direction: direction,
+      );
 
   void clear() => state = state.clear();
 
@@ -72,7 +89,7 @@ final regionSelectionProvider =
 class HoveredRegionController extends Notifier<String?> {
   @override
   String? build() {
-    ref.watch(captureSessionProvider.select((session) => session.ocrResult));
+    _watchActiveResult(ref);
     return null;
   }
 

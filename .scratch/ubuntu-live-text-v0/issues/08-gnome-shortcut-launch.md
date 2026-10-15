@@ -6,7 +6,7 @@ while repeated activation remains bounded to one active capture session.
 
 **Blocked by:** 07: Capture visible content through GNOME.
 
-**Status:** blocked
+**Status:** wontfix; superseded by 17: Resident app and shortcut activation
 
 - [ ] The application exposes a stable capture-mode launch command suitable
   for GNOME Custom Shortcuts.
