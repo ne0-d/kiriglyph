@@ -1,5 +1,5 @@
 {
-  "note": "User-provided desktop screenshots used for local regression only; images in this directory are ignored and are not distribution fixtures.",
+  "note": "Raw screen captures used for local regression only; images in this directory are ignored and are not distribution fixtures. Fixtures must be raw captures: screenshots of the Kiriglyph overlay contain painted dim and highlight pixels and are invalid segmentation sources. Create new ones with scripts/capture-fixture.sh. The entries below were taken before this rule and may contain overlay pixels.",
   "fixtures": [
     {
       "id": "google_images_apple_user_regression",

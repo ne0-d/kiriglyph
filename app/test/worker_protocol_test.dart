@@ -42,6 +42,23 @@ Map<String, Object> _singleRangePayload(Map<String, Object?> patch) => {
 };
 
 void main() {
+  test('encodeDecodeCodesRequest uses the decode_codes method', () {
+    expect(
+      encodeDecodeCodesRequest(id: 'code-1', imagePath: '/tmp/crop.png'),
+      '{"version":1,"id":"code-1","method":"decode_codes","params":{"image_path":"/tmp/crop.png"}}',
+    );
+  });
+
+  test('parseDecodeCodesResponseLine accepts code results', () {
+    const line =
+        '{"version":1,"id":"code-1","ok":true,"result":{"codes":[{"format":"QRCode","text":"https://example.com"}]}}';
+
+    final codes = parseDecodeCodesResponseLine(line, expectedId: 'code-1');
+
+    expect(codes.single.format, 'QRCode');
+    expect(codes.single.text, 'https://example.com');
+  });
+
   test('parseSuccessResult accepts contract-shaped payload', () {
     final result = parseSuccessResult({
       'image': {'width': 640, 'height': 480},

@@ -9,6 +9,7 @@ import 'package:kiriglyph/app/app_lifecycle.dart';
 import 'package:kiriglyph/app/app_shell.dart';
 import 'package:kiriglyph/capture/screen_capture.dart';
 import 'package:kiriglyph/capture/session_image_store.dart';
+import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/overlay/display_layout.dart';
 import 'package:kiriglyph/overlay/overlay_frame.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
@@ -18,7 +19,42 @@ import 'package:kiriglyph/selection/region_selection_provider.dart';
 
 import 'support/fake_subject_segmenter.dart';
 import 'support/overlay_fakes.dart';
-import 'support/workspace_harness.dart' show sampleResult, resultWith;
+
+OcrResult sampleResult() => resultWith([
+  _line('l3', 'Gamma line', 2, 20, 70, 60, 85),
+  _line('l1', 'Alpha line', 0, 20, 10, 180, 25),
+  _line('l2', 'Beta line', 1, 20, 40, 120, 55),
+]);
+
+OcrResult resultWith(List<TextRegion> regions) => OcrResult(
+  imageWidth: 200,
+  imageHeight: 100,
+  fullText: '',
+  regions: regions,
+  timingsMs: const TimingsMs(total: 420),
+);
+
+TextRegion _line(
+  String id,
+  String text,
+  int order,
+  double left,
+  double top,
+  double right,
+  double bottom,
+) => TextRegion(
+  id: id,
+  level: TextRegionLevel.line,
+  text: text,
+  polygon: [
+    Point(x: left, y: top),
+    Point(x: right, y: top),
+    Point(x: right, y: bottom),
+    Point(x: left, y: bottom),
+  ],
+  confidence: 1,
+  readingOrder: order,
+);
 
 void main() {
   late Directory root;
@@ -92,7 +128,7 @@ void main() {
       OverlayPhase.recognizing,
       OverlayPhase.ready,
     ]);
-    expect(shell.events, ['prepare', 'show']);
+    expect(shell.events, ['prepare', 'show', 'reveal']);
     expect(pictures.listSync(), isEmpty, reason: 'portal file deleted');
     expect(codec.decoded.single, [1], reason: 'decoded in memory');
     expect(codec.crops.single.source, const PixelRect(0, 0, 200, 100));
@@ -190,6 +226,7 @@ void main() {
     await until(() => worker.pending.isNotEmpty);
     expect(state().phase, OverlayPhase.recognizing);
 
+    worker.inFlightCancels = 0;
     await overlay().dismiss();
     worker.pending.single.complete(sampleResult());
     await start;
@@ -197,8 +234,9 @@ void main() {
     expect(state().phase, OverlayPhase.idle);
     expect(state().ocrResult, isNull);
     expect(privateFiles(), isEmpty);
-    await until(() => worker.restarts > 0);
-    expect(worker.restarts, 1, reason: 'OCR stopped and worker re-warmed');
+    await until(() => worker.inFlightCancels > 0);
+    expect(worker.inFlightCancels, 1, reason: 'OCR request was dropped');
+    expect(worker.restarts, 0, reason: 'warm OCR worker stays alive');
   });
 
   test('missing permission opens onboarding instead of the overlay', () async {
@@ -222,7 +260,7 @@ void main() {
 
     await Future<void>.delayed(const Duration(milliseconds: 120));
     expect(state().phase, OverlayPhase.idle);
-    expect(shell.events, ['prepare', 'show', 'hide']);
+    expect(shell.events, ['prepare', 'show', 'reveal', 'hide']);
   });
 
   test(
@@ -243,6 +281,21 @@ void main() {
       expect(privateFiles(), hasLength(1));
     },
   );
+
+  test('worker no_text stays ready and starts subject embedding', () async {
+    worker.next = null;
+    worker.error = WorkerError(code: 'no_text', message: 'no text');
+
+    await overlay().start();
+
+    expect(state().phase, OverlayPhase.ready);
+    expect(state().ocrResult, isNotNull);
+    expect(state().ocrResult!.regions, isEmpty);
+    expect(state().ocrResult!.fullText, isEmpty);
+    expect(state().subjectEmbedding, isNotNull);
+    expect(subjectSegmenter.embedCalls, 1);
+    expect(state().message, isNull);
+  });
 
   test('OCR failures show safe messages', () async {
     worker.error = const WorkerProcessError(

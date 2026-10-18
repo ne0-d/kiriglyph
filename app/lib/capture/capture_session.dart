@@ -35,7 +35,7 @@ class CaptureSessionController extends Notifier<CaptureSessionState> {
   /// Ends any in-flight overlay recognition and clears worker state.
   Future<void> discardSession() async {
     try {
-      await ref.read(ocrWorkerProvider).cancelActive();
+      await ref.read(ocrWorkerProvider).cancelInFlight();
     } catch (_) {
       // Cancellation is best-effort when the overlay closes.
     }

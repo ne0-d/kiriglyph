@@ -11,6 +11,7 @@ OLD_APP_ID="dev.livetext.LiveText"
 NEW_APP_ID="dev.kiriglyph.Kiriglyph"
 OLD_LAUNCHER="$HOME/.local/bin/live-text"
 NEW_LAUNCHER="$HOME/.local/bin/kiriglyph"
+ICON_DIR="$DATA_HOME/icons/hicolor/symbolic/apps"
 
 delete_screenshot_permission() {
   local app_id="$1"
@@ -56,9 +57,17 @@ remove_identity() {
 
   rm -f "$autostart_file" "$desktop_file" "$launcher"
   rm -rf "$DATA_HOME/$data_subdir"
+  if [[ "$app_id" == "$NEW_APP_ID" ]]; then
+    rm -f "$ICON_DIR/kiriglyph-symbolic.svg" \
+      "$ICON_DIR/kiriglyph-attention-symbolic.svg" \
+      "$ICON_DIR/kiriglyph-busy-symbolic.svg"
+  fi
 
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$(dirname "$desktop_file")" >/dev/null 2>&1 || true
+  fi
+  if [[ "$app_id" == "$NEW_APP_ID" ]] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
   fi
 
   delete_screenshot_permission "$app_id"

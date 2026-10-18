@@ -1,0 +1,1 @@
+{"version":1,"id":"segmentation-model-missing","ok":false,"error":{"code":"model_missing","message":"EfficientSAM-Ti model files are not installed","details":{"command":"kiriglyph-fetch-models"}}}

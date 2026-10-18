@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:kiriglyph/a11y/cursor_size.dart';
 import 'package:kiriglyph/app/app_shell.dart';
 import 'package:kiriglyph/capture/instant_capture.dart';
 import 'package:kiriglyph/capture/screen_capture.dart';
@@ -14,6 +15,7 @@ import 'package:kiriglyph/overlay/display_layout.dart';
 import 'package:kiriglyph/overlay/overlay_frame.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
 import 'package:kiriglyph/providers.dart';
 import 'package:kiriglyph/ui/kiriglyph_app.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
@@ -263,6 +265,13 @@ class FakeWorker implements OcrWorker {
   }
 
   @override
+  Future<List<DecodedCode>> decodeCodes(String imagePath) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> cancelInFlight() async {}
+
+  @override
   Future<void> restart() async {}
 
   @override
@@ -293,6 +302,9 @@ Future<void> pumpApp(
         if (selectionCommand != null)
           selectionCommandProvider.overrideWithValue(selectionCommand),
         ocrWorkerProvider.overrideWithValue(worker),
+        gnomeCursorSizePortProvider.overrideWithValue(
+          FakeGnomeCursorSizePort(defaultCursorSize),
+        ),
         ...overrides,
       ],
       child: const KiriglyphApp(),

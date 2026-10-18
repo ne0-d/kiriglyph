@@ -98,6 +98,29 @@ for request in reversed(requests):
     sys.stdout.flush()
 ''';
 
+const _staleThenFreshWorker = r'''
+import json
+import os
+import sys
+
+first = json.loads(sys.stdin.buffer.readline())
+second = json.loads(sys.stdin.buffer.readline())
+for request in [first, second]:
+    response = {
+        "version": 1,
+        "id": request["id"],
+        "ok": True,
+        "result": {
+            "image": {"width": 1, "height": 1},
+            "full_text": request["params"]["image_path"] + "|" + str(os.getpid()),
+            "regions": [],
+            "timings_ms": {"total": 0},
+        },
+    }
+    sys.stdout.write(json.dumps(response) + "\n")
+    sys.stdout.flush()
+''';
+
 const _blockedWorker = r'''
 import sys
 import time
@@ -345,6 +368,40 @@ void main() {
     await worker.cancelActive().timeout(const Duration(seconds: 1));
     await expectation;
   });
+
+  test(
+    'cancelInFlight keeps the worker warm and ignores stale responses',
+    () async {
+      final worker = ProcessOcrWorker(
+        WorkerLaunchConfig(
+          executable: 'python3',
+          arguments: const ['-u', '-c', _staleThenFreshWorker],
+          environment: Platform.environment,
+        ),
+        requestTimeout: const Duration(seconds: 2),
+      );
+      addTearDown(worker.close);
+
+      final first = worker.recognize('/tmp/stale.png');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final firstCancelled = expectLater(
+        first,
+        throwsA(
+          isA<WorkerProcessError>().having(
+            (error) => error.kind,
+            'kind',
+            WorkerFailureKind.cancelled,
+          ),
+        ),
+      );
+      await worker.cancelInFlight();
+
+      final second = await worker.recognize('/tmp/fresh.png');
+      await firstCancelled;
+
+      expect(second.fullText, startsWith('/tmp/fresh.png|'));
+    },
+  );
 
   test('restart replaces the worker before the next recognition', () async {
     final worker = ProcessOcrWorker(

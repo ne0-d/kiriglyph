@@ -14,6 +14,25 @@ String encodeRecognizeRequest({required String id, required String imagePath}) {
   });
 }
 
+String encodeDecodeCodesRequest({
+  required String id,
+  required String imagePath,
+}) {
+  return jsonEncode({
+    'version': protocolVersion,
+    'id': id,
+    'method': 'decode_codes',
+    'params': {'image_path': imagePath},
+  });
+}
+
+class DecodedCode {
+  const DecodedCode({required this.format, required this.text});
+
+  final String format;
+  final String text;
+}
+
 OcrResult parseSuccessResult(Object? raw) {
   if (raw is! Map) {
     throw ProtocolError('result must be a JSON object');
@@ -76,6 +95,35 @@ OcrResult parseSuccessResult(Object? raw) {
     regions: regions,
     timingsMs: TimingsMs(total: total),
   );
+}
+
+List<DecodedCode> parseDecodeCodesSuccessResult(Object? raw) {
+  if (raw is! Map) {
+    throw ProtocolError('result must be a JSON object');
+  }
+  final codesRaw = raw['codes'];
+  if (codesRaw is! List) {
+    throw ProtocolError('result.codes must be an array');
+  }
+  final codes = <DecodedCode>[];
+  for (var index = 0; index < codesRaw.length; index++) {
+    final code = codesRaw[index];
+    if (code is! Map) {
+      throw ProtocolError('result.codes[$index] must be an object');
+    }
+    final format = code['format'];
+    final text = code['text'];
+    if (format is! String || format.isEmpty) {
+      throw ProtocolError('result.codes[$index].format must be a string');
+    }
+    if (text is! String || text.isEmpty) {
+      throw ProtocolError('result.codes[$index].text must be a string');
+    }
+    _rejectExtraKeys(code, {'format', 'text'}, 'result.codes[$index]');
+    codes.add(DecodedCode(format: format, text: text));
+  }
+  _rejectExtraKeys(raw, {'codes'}, 'result');
+  return List.unmodifiable(codes);
 }
 
 TextRegion _parseRegion(
@@ -339,6 +387,38 @@ List<Point> _parsePolygon(
   _rejectExtraKeys(errorRaw, {'code', 'message'}, 'error');
 
   return (result: null, error: WorkerError(code: code, message: message));
+}
+
+List<DecodedCode> parseDecodeCodesResponseLine(
+  String line, {
+  required String expectedId,
+}) {
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(line);
+  } on FormatException {
+    throw ProtocolError('response line is not valid JSON');
+  }
+
+  if (decoded is! Map) {
+    throw ProtocolError('response must be a JSON object');
+  }
+
+  if (decoded['version'] != protocolVersion) {
+    throw ProtocolError('unsupported protocol version');
+  }
+  final id = decoded['id'];
+  if (id is! String || id.isEmpty) {
+    throw ProtocolError('response id must be a non-empty string');
+  }
+  if (id != expectedId) {
+    throw ProtocolError('response id does not match request');
+  }
+  if (decoded['ok'] != true) {
+    throw ProtocolError('decode_codes response was not successful');
+  }
+  _rejectExtraKeys(decoded, {'version', 'id', 'ok', 'result'}, 'response');
+  return parseDecodeCodesSuccessResult(decoded['result']);
 }
 
 int _requireInt(Object? value, {required String field}) {

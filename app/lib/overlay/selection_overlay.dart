@@ -99,7 +99,6 @@ const overlayStartNotice =
     'Selection mode could not start. Try the shortcut again.';
 
 const noTextSubjectNotice = 'No text found - click or draw around an object';
-const _noTextMessage = 'No text was found on this display.';
 const _layoutMessage = 'This display layout is not supported yet.';
 const _captureMessages = {
   ScreenCaptureStatus.unavailable:
@@ -117,6 +116,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
   int _operation = 0;
   SessionImage? _image;
   bool _windowShown = false;
+  bool _overlayRevealed = false;
   Timer? _contentTimer;
   Timer? _failureTimer;
 
@@ -158,7 +158,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     } catch (_) {
       // Reported as a failed capture below.
     }
-    ref.read(timingLogProvider).mark(TimingPhase.capture);
+    ref.read(timingLogProvider).mark(TimingPhase.portal);
     final store = ref.read(sessionImageStoreProvider);
     final returnedPath = capture.path;
     if (operation != _operation) {
@@ -177,7 +177,6 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     }
     if (capture.status != ScreenCaptureStatus.captured ||
         returnedPath == null) {
-      ref.read(timingLogProvider).finish(TimingOutcome.failed);
       await _failWithoutFrame(
         operation,
         _captureMessages[capture.status] ?? _captureFailedMessage,
@@ -188,9 +187,9 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     final Uint8List encoded;
     try {
       encoded = await store.take(returnedPath);
+      ref.read(timingLogProvider).mark(TimingPhase.read);
     } on FileSystemException {
       if (operation == _operation) {
-        ref.read(timingLogProvider).finish(TimingOutcome.failed);
         await _failWithoutFrame(
           operation,
           _captureMessages[ScreenCaptureStatus.unreadable]!,
@@ -219,6 +218,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     frame?.dispose();
     if (_windowShown) {
       _windowShown = false;
+      _overlayRevealed = false;
       try {
         await _shell.hideOverlay();
       } catch (_) {
@@ -229,8 +229,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     await _closeSubjectSegmenter();
     ref.read(timingLogProvider).finish(TimingOutcome.dismissed);
     if (recognizing) {
-      // Stops OCR of the discarded frame and warms a fresh worker.
-      unawaited(_restartWorker());
+      unawaited(_cancelInFlightRecognition());
     }
   }
 
@@ -283,9 +282,10 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
 
   Future<void> _freeze(int operation, Uint8List encoded) async {
     final codec = ref.read(overlayFrameCodecProvider);
-    final decoding = codec
-        .decode(encoded)
-        .then<DecodedCapture?>((capture) => capture, onError: (_) => null);
+    final decoding = codec.decode(encoded).then<DecodedCapture?>((capture) {
+      ref.read(timingLogProvider).mark(TimingPhase.decode);
+      return capture;
+    }, onError: (_) => null);
 
     final placement = await _place(operation);
     if (placement == null) {
@@ -331,6 +331,10 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       phase: OverlayPhase.recognizing,
       frame: frame,
     );
+    if (!await _revealOverlay(operation)) {
+      frame.dispose();
+      return;
+    }
     await _recognize(operation, codec, frame);
   }
 
@@ -344,22 +348,23 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       final image = await ref
           .read(sessionImageStoreProvider)
           .write(await codec.encodePng(frame));
+      ref.read(timingLogProvider).mark(TimingPhase.pngEncode);
       if (operation != _operation) {
         await image.discard();
         return;
       }
       _image = image;
+      ref.read(timingLogProvider).mark(TimingPhase.ocrDispatch);
       result = await ref.read(ocrWorkerProvider).recognize(image.path);
-      ref.read(timingLogProvider).mark(TimingPhase.ocr);
+      ref.read(timingLogProvider).mark(TimingPhase.ocrResult);
     } catch (error) {
       if (operation == _operation) {
         final failure = recognitionFailureOf(error);
-        _fail(
-          operation,
-          failure.failure == CaptureFailure.noText
-              ? _noTextMessage
-              : failure.message,
-        );
+        if (failure.failure == CaptureFailure.noText) {
+          _readyWithoutText(frame);
+          return;
+        }
+        _fail(operation, failure.message);
       }
       return;
     }
@@ -414,11 +419,30 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     return embedding;
   }
 
+  void _readyWithoutText(OverlayFrame frame) {
+    final image = _image;
+    state = SelectionOverlayState(
+      phase: OverlayPhase.ready,
+      frame: frame,
+      ocrResult: OcrResult(
+        imageWidth: frame.width,
+        imageHeight: frame.height,
+        fullText: '',
+        regions: const [],
+        timingsMs: const TimingsMs(total: 0),
+      ),
+      subjectImagePath: image?.path,
+      subjectEmbedding: image == null ? null : _startEmbedding(image.path),
+      activeSelection: SelectionActiveKind.none,
+    );
+  }
+
   /// Shows the transparent overlay window and waits for its display. Gives up
   /// after [OverlayTimeouts.content] if no frame could be shown by then.
   Future<DisplayPlacement?> _place(int operation) async {
     state = const SelectionOverlayState(phase: OverlayPhase.placing);
     _windowShown = true;
+    _overlayRevealed = false;
     _contentTimer?.cancel();
     _contentTimer = Timer(ref.read(overlayTimeoutsProvider).content, () {
       if (operation == _operation && state.phase == OverlayPhase.placing) {
@@ -427,6 +451,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     });
     try {
       final placement = await _shell.showOverlay();
+      ref.read(timingLogProvider).mark(TimingPhase.map);
       ref
           .read(timingLogProvider)
           .setDisplay(
@@ -459,6 +484,9 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       frame: state.frame,
       message: message,
     );
+    if (_windowShown && !_overlayRevealed) {
+      unawaited(_revealOverlay(operation));
+    }
     _failureTimer?.cancel();
     _failureTimer = Timer(ref.read(overlayTimeoutsProvider).failureMessage, () {
       if (operation == _operation) {
@@ -473,6 +501,23 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     await dismiss();
     ref.read(selectionNoticeProvider.notifier).show(overlayStartNotice);
     await _present();
+  }
+
+  Future<bool> _revealOverlay(int operation) async {
+    if (!_windowShown || _overlayRevealed) {
+      return operation == _operation;
+    }
+    try {
+      await _shell.revealOverlay();
+      ref.read(timingLogProvider).mark(TimingPhase.reveal);
+      _overlayRevealed = true;
+    } catch (_) {
+      if (operation == _operation) {
+        await _abandon();
+      }
+      return false;
+    }
+    return operation == _operation;
   }
 
   Future<void> _openOnboarding(String notice) async {
@@ -506,11 +551,11 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     ref.invalidate(subjectSegmenterProvider);
   }
 
-  Future<void> _restartWorker() async {
+  Future<void> _cancelInFlightRecognition() async {
     try {
-      await ref.read(ocrWorkerProvider).restart();
+      await ref.read(ocrWorkerProvider).cancelInFlight();
     } catch (_) {
-      // The next recognition retries startup and reports its failure.
+      // The next recognition keeps the normal startup/recovery behavior.
     }
   }
 }

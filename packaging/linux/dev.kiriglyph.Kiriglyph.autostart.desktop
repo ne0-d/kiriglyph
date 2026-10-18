@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Kiriglyph
+Comment=Keeps Kiriglyph ready for its selection shortcut
+Exec=/usr/bin/kiriglyph --background
+Icon=kiriglyph-symbolic
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

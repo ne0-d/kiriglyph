@@ -402,6 +402,8 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
+      await tester.tap(find.text('Free draw'));
+      await tester.pump();
 
       await _drawStroke(tester, [
         _imagePoint(tester, 0.175, 0.05),
@@ -424,6 +426,8 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
+      await tester.tap(find.text('Free draw'));
+      await tester.pump();
       final points = [
         _imagePoint(tester, 0.175, 0.05),
         _imagePoint(tester, 0.425, 0.05),
@@ -469,6 +473,8 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
+      await tester.tap(find.text('Free draw'));
+      await tester.pump();
 
       await _drawStroke(tester, [
         _imagePoint(tester, 0.175, 0.05),

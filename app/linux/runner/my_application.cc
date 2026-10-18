@@ -54,6 +54,9 @@ struct _MyApplication {
   guint placement_poll_id;
   gint64 placement_started_us;
   gint64 placement_size_matched_us;
+  FlMethodCall* reveal_call;
+  GdkFrameClock* reveal_clock;
+  gulong reveal_after_paint_id;
   guint focus_out_timeout_id;
   gboolean suppress_focus_loss;
 };
@@ -305,6 +308,26 @@ static void fail_placement(MyApplication* self, const char* code,
   }
 }
 
+static void finish_reveal(MyApplication* self) {
+  if (self->reveal_clock != nullptr) {
+    if (self->reveal_after_paint_id != 0) {
+      g_signal_handler_disconnect(self->reveal_clock,
+                                  self->reveal_after_paint_id);
+      self->reveal_after_paint_id = 0;
+    }
+    gdk_frame_clock_end_updating(self->reveal_clock);
+    g_clear_object(&self->reveal_clock);
+  }
+  if (self->reveal_call != nullptr) {
+    fl_method_call_respond_success(self->reveal_call, nullptr, nullptr);
+    g_clear_object(&self->reveal_call);
+  }
+}
+
+static void reveal_after_paint_cb(GdkFrameClock* clock, gpointer user_data) {
+  finish_reveal(MY_APPLICATION(user_data));
+}
+
 static FlValue* monitor_value(GdkMonitor* monitor) {
   GdkRectangle geometry;
   gdk_monitor_get_geometry(monitor, &geometry);
@@ -393,6 +416,7 @@ static void enter_overlay_mode(MyApplication* self) {
   self->overlay = TRUE;
   self->overlay_was_active = FALSE;
   GtkWidget* widget = GTK_WIDGET(self->window);
+  gtk_widget_set_opacity(widget, 0.0);
   gtk_window_get_size(self->window, &self->normal_width, &self->normal_height);
   if (self->header_bar != nullptr) {
     gtk_widget_hide(self->header_bar);
@@ -409,6 +433,7 @@ static void enter_overlay_mode(MyApplication* self) {
 // restores the normal window for its next presentation.
 static void leave_overlay_mode(MyApplication* self) {
   fail_placement(self, "cancelled", "The overlay was dismissed.");
+  finish_reveal(self);
   clear_source(&self->focus_out_timeout_id);
   if (!self->overlay) {
     return;
@@ -418,6 +443,7 @@ static void leave_overlay_mode(MyApplication* self) {
   self->show_requested = FALSE;
   GtkWidget* widget = GTK_WIDGET(self->window);
   gtk_widget_hide(widget);
+  gtk_widget_set_opacity(widget, 1.0);
   gtk_window_unfullscreen(self->window);
   gtk_window_set_decorated(self->window, TRUE);
   if (self->header_bar != nullptr) {
@@ -449,6 +475,34 @@ static void show_overlay(MyApplication* self, FlMethodCall* method_call) {
   self->placement_poll_id =
       g_timeout_add(kPlacementPollMs, placement_poll_cb, self);
   present_window(self);
+}
+
+static void reveal_overlay(MyApplication* self, FlMethodCall* method_call) {
+  if (!self->overlay) {
+    fl_method_call_respond_error(method_call, "not_overlay",
+                                 "The overlay is not active.", nullptr,
+                                 nullptr);
+    return;
+  }
+  if (self->reveal_call != nullptr) {
+    fl_method_call_respond_error(method_call, "busy",
+                                 "The overlay is already being revealed.",
+                                 nullptr, nullptr);
+    return;
+  }
+  GtkWidget* widget = GTK_WIDGET(self->window);
+  gtk_widget_set_opacity(widget, 1.0);
+  GdkFrameClock* clock = gtk_widget_get_frame_clock(widget);
+  if (clock == nullptr) {
+    fl_method_call_respond_success(method_call, nullptr, nullptr);
+    return;
+  }
+  self->reveal_call = FL_METHOD_CALL(g_object_ref(method_call));
+  self->reveal_clock = GDK_FRAME_CLOCK(g_object_ref(clock));
+  self->reveal_after_paint_id =
+      g_signal_connect(clock, "after-paint", G_CALLBACK(reveal_after_paint_cb),
+                       self);
+  gdk_frame_clock_begin_updating(clock);
 }
 
 static gboolean focus_out_timeout_cb(gpointer user_data) {
@@ -506,6 +560,9 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     return;
   } else if (g_strcmp0(method, "showOverlay") == 0) {
     show_overlay(self, method_call);
+    return;
+  } else if (g_strcmp0(method, "revealOverlay") == 0) {
+    reveal_overlay(self, method_call);
     return;
   } else if (g_strcmp0(method, "hideOverlay") == 0) {
     leave_overlay_mode(self);
@@ -740,6 +797,7 @@ static void my_application_dispose(GObject* object) {
   clear_source(&self->prepare_timeout_id);
   clear_source(&self->placement_poll_id);
   clear_source(&self->focus_out_timeout_id);
+  finish_reveal(self);
   g_clear_object(&self->prepare_call);
   g_clear_object(&self->placement_call);
   g_clear_object(&self->channel);

@@ -46,6 +46,7 @@ class ProcessOcrWorker implements OcrWorker {
   StreamSubscription<List<int>>? _stderrSubscription;
   final _pending =
       <String, Completer<({OcrResult? result, WorkerError? error})>>{};
+  final _pendingCodes = <String, Completer<List<DecodedCode>>>{};
 
   Future<void> _ensureStarted() async {
     if (_closed) {
@@ -175,7 +176,32 @@ class ProcessOcrWorker implements OcrWorker {
       return;
     }
 
-    if (!_pending.containsKey(responseId)) {
+    if (!_pending.containsKey(responseId) &&
+        !_pendingCodes.containsKey(responseId)) {
+      return;
+    }
+
+    final codeCompleter = _pendingCodes.remove(responseId);
+    if (codeCompleter != null) {
+      try {
+        codeCompleter.complete(
+          parseDecodeCodesResponseLine(line, expectedId: responseId),
+        );
+      } on ProtocolError catch (error) {
+        codeCompleter.completeError(
+          WorkerProcessError(
+            kind: WorkerFailureKind.malformedResponse,
+            message: error.message,
+          ),
+        );
+        _terminateForFailure(
+          process,
+          const WorkerProcessError(
+            kind: WorkerFailureKind.malformedResponse,
+            message: 'worker sent a malformed response',
+          ),
+        );
+      }
       return;
     }
 
@@ -203,10 +229,27 @@ class ProcessOcrWorker implements OcrWorker {
   void _failAll(Object error) {
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
+        completer.future.ignore();
         completer.completeError(error);
       }
     }
     _pending.clear();
+    for (final completer in _pendingCodes.values) {
+      if (!completer.isCompleted) {
+        completer.future.ignore();
+        completer.completeError(error);
+      }
+    }
+    _pendingCodes.clear();
+  }
+
+  void _cancelPendingRequests() {
+    _failAll(
+      const WorkerProcessError(
+        kind: WorkerFailureKind.cancelled,
+        message: 'worker recognition was cancelled',
+      ),
+    );
   }
 
   void _terminateForFailure(Process process, Object error) {
@@ -257,14 +300,40 @@ class ProcessOcrWorker implements OcrWorker {
   }
 
   @override
+  Future<List<DecodedCode>> decodeCodes(String imagePath) async {
+    await _ensureStarted();
+    final id =
+        'req-${++_requestCounter}-${DateTime.now().microsecondsSinceEpoch}';
+    final completer = Completer<List<DecodedCode>>();
+    _pendingCodes[id] = completer;
+
+    final requestLine =
+        '${encodeDecodeCodesRequest(id: id, imagePath: imagePath)}\n';
+    final process = _process!;
+    await _writeRequest(process, utf8.encode(requestLine));
+    return completer.future.timeout(
+      requestTimeout,
+      onTimeout: () {
+        _pendingCodes.remove(id);
+        final error = WorkerProcessError(
+          kind: WorkerFailureKind.timeout,
+          message: 'worker code decoding timed out',
+        );
+        _terminateForFailure(process, error);
+        throw error;
+      },
+    );
+  }
+
+  @override
+  Future<void> cancelInFlight() async {
+    _cancelPendingRequests();
+  }
+
+  @override
   Future<void> cancelActive() async {
     _generation++;
-    _failAll(
-      const WorkerProcessError(
-        kind: WorkerFailureKind.cancelled,
-        message: 'worker recognition was cancelled',
-      ),
-    );
+    _cancelPendingRequests();
     try {
       await _starting;
     } catch (_) {

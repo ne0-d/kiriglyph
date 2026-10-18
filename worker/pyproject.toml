@@ -9,6 +9,7 @@ dependencies = [
     "onnxruntime==1.31.0",
     "pillow==12.3.0",
     "rapidocr==3.10.0",
+    "zxing-cpp>=3.1.1",
 ]
 
 [project.scripts]
@@ -20,6 +21,7 @@ kiriglyph-fetch-models = "worker.segmentation_models:main"
 dev = [
   "jsonschema>=4.23",
   "pytest>=8.3",
+  "qrcode>=8.2",
 ]
 
 [build-system]

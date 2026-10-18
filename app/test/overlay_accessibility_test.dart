@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:kiriglyph/a11y/overlay_announcer.dart';
 import 'package:kiriglyph/app/app_shell.dart';
 import 'package:kiriglyph/capture/session_image_store.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
@@ -70,10 +71,12 @@ void main() {
   String? clipboardText;
   late Directory root;
   late List<String> announcements;
+  late FakeOverlayAnnouncer announcer;
 
   setUp(() {
     clipboardText = null;
     announcements = [];
+    announcer = FakeOverlayAnnouncer();
     root = Directory.systemTemp.createTempSync('overlay-a11y-');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       ..setMockMethodCallHandler(SystemChannels.platform, (call) async {
@@ -124,6 +127,7 @@ void main() {
     Object? error,
     OverlayPhase waitFor = OverlayPhase.ready,
     Size size = const Size(800, 400),
+    bool realAnnouncer = false,
   }) async {
     final ocr = result ?? sampleResult();
     final image = await tester.runAsync(
@@ -149,6 +153,8 @@ void main() {
       size: size,
       worker: worker,
       overrides: [
+        if (!realAnnouncer)
+          overlayAnnouncerProvider.overrideWithValue(announcer),
         appShellProvider.overrideWithValue(shell),
         silentScreenCaptureProvider.overrideWithValue(
           FakeSilentPortal(pictures),
@@ -263,6 +269,10 @@ void main() {
       expect(clipboardText, 'abcd\nefgh\n\nwxyz');
       await tester.pump(const Duration(seconds: 3));
 
+      // Escape steps back one level: the selection first, then the overlay.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(overlay.phase, OverlayPhase.ready);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(overlay.phase, OverlayPhase.idle);
@@ -503,41 +513,40 @@ void main() {
   });
 
   group('announcements', () {
-    testWidgets('recognizing, ready and copied are announced briefly', (
+    testWidgets('opened, recognizing and copied are announced briefly', (
       tester,
     ) async {
-      announcesOnThisPlatform(tester);
       final overlay = await openOverlay(tester, recognized: false);
-      expect(announcements, ['Recognizing text…']);
+      expect(announcer.messages, ['Recognizing text…']);
 
       overlay.worker.pending.single.complete(sampleResult());
       await tester.runAsync(() => overlay.started);
       await tester.pump();
-      expect(announcements.last, '3 lines found');
+      expect(
+        announcer.last,
+        'Kiriglyph capture open, 3 lines found, press question mark for help',
+      );
 
       await tester.tap(find.byKey(_copyAllKey));
       await tester.pump();
-      expect(announcements.last, 'Copied all 3 lines');
+      expect(announcer.last, 'Copied all 3 lines');
 
       expect(
-        announcements.join(' '),
+        announcer.messages.join(' '),
         isNot(anyOf(contains('Alpha'), contains('Beta'), contains('Gamma'))),
       );
       await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('no text found is announced without closing', (tester) async {
-      announcesOnThisPlatform(tester);
       await openOverlay(
         tester,
         result: resultWith(const []),
         waitFor: OverlayPhase.ready,
       );
 
-      expect(
-        announcements.last,
-        'No text found - click or draw around an object',
-      );
+      expect(announcer.last, contains('no text found'));
+      expect(announcer.last, contains('press question mark for help'));
       expect(
         find.text('No text found - click or draw around an object'),
         findsOneWidget,
@@ -546,8 +555,7 @@ void main() {
       expect(find.byKey(const Key('overlay-toolbar')), findsOneWidget);
     });
 
-    testWidgets('an OCR failure is announced', (tester) async {
-      announcesOnThisPlatform(tester);
+    testWidgets('an OCR failure is announced assertively', (tester) async {
       await openOverlay(
         tester,
         recognized: false,
@@ -555,15 +563,14 @@ void main() {
         waitFor: OverlayPhase.failed,
       );
 
-      expect(announcements, hasLength(1));
-      final message = announcements.last;
+      expect(announcer.assertiveMessages, hasLength(1));
+      final message = announcer.assertiveMessages.single;
       expect(find.text(message), findsOneWidget);
       expect(message, isNot(contains('boom')));
       await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('a copy failure is announced', (tester) async {
-      announcesOnThisPlatform(tester);
+    testWidgets('a copy failure is announced assertively', (tester) async {
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
         (call) async {
@@ -578,26 +585,38 @@ void main() {
       await tester.tap(find.byKey(_copyAllKey));
       await tester.pump();
 
-      expect(announcements.last, 'Could not copy. Try again.');
+      expect(announcer.assertiveMessages, ['Could not copy. Try again.']);
       await tester.pump(const Duration(seconds: 4));
     });
 
-    testWidgets('selecting never announces; hint and count stay silent', (
-      tester,
-    ) async {
-      announcesOnThisPlatform(tester);
-      await openOverlay(tester);
-      final before = announcements.length;
+    testWidgets('selecting announces counts, never the text', (tester) async {
+      await openOverlay(tester, result: _paragraphResult());
 
       await paragraphKey(tester, LogicalKeyboardKey.arrowDown);
+      expect(announcer.last, '2 lines selected');
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
       await tester.pump();
 
-      expect(announcements.length, before);
+      expect(announcer.last, '1 line selected');
+      expect(
+        announcer.messages.join(' '),
+        isNot(anyOf(contains('abcd'), contains('wxyz'))),
+      );
     });
 
-    testWidgets('where announcing is unsupported, a live region carries '
-        'the state instead', (tester) async {
+    testWidgets('closing is announced', (tester) async {
+      await openOverlay(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+
+      expect(announcer.last, 'Kiriglyph capture closed');
+    });
+
+    testWidgets('announcements are sent even where the platform does not '
+        'report support, and the live region stays as a fallback', (
+      tester,
+    ) async {
       tester.platformDispatcher.accessibilityFeaturesTestValue =
           const FakeAccessibilityFeatures();
       addTearDown(
@@ -605,7 +624,7 @@ void main() {
       );
       final handle = tester.ensureSemantics();
       final overlay = await openOverlay(tester, recognized: false);
-      expect(announcements, isEmpty);
+      expect(announcer.messages, ['Recognizing text…']);
       expect(
         tester
             .getSemantics(find.text('Recognizing text…'))
@@ -642,6 +661,25 @@ void main() {
         isFalse,
       );
       handle.dispose();
+    });
+
+    testWidgets('the real announcer reaches the platform channel and joins '
+        'a burst', (tester) async {
+      final overlay = await openOverlay(
+        tester,
+        recognized: false,
+        realAnnouncer: true,
+      );
+      expect(announcements, ['Recognizing text…']);
+
+      overlay.worker.pending.single.complete(sampleResult());
+      await tester.runAsync(() => overlay.started);
+      await tester.pump();
+      // Inside the rate-limit window: held, then sent after it.
+      expect(announcements, ['Recognizing text…']);
+      await tester.pump(announcementCoalesceWindow);
+      expect(announcements.last, contains('3 lines found'));
+      await tester.pump(announcementCoalesceWindow * 2);
     });
   });
 

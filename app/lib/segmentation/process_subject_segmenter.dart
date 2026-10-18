@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:kiriglyph/protocol/protocol_error.dart';
 import 'package:kiriglyph/segmentation/subject_segmenter.dart';
 import 'package:kiriglyph/worker/process_ocr_worker.dart';
@@ -51,6 +52,7 @@ class ProcessSubjectSegmenter implements SubjectSegmenter {
       'prompt': prompt.toJson(),
     }, timeoutMessage: 'subject prompt timed out');
     final parsed = _parseMaskResult(result);
+    await _verifyMask(parsed.mask);
     _maskPaths.add(parsed.mask.path);
     return parsed;
   }
@@ -358,6 +360,25 @@ class ProcessSubjectSegmenter implements SubjectSegmenter {
       return true;
     } on TimeoutException {
       return false;
+    }
+  }
+
+  Future<void> _verifyMask(SubjectMaskReference mask) async {
+    final bytes = await File(mask.path)
+        .readAsBytes()
+        .onError<FileSystemException>(
+          (_, _) => throw const SubjectSegmentationException(
+            kind: SubjectFailureKind.malformedOutput,
+            message: 'Subject mask integrity check failed. Try again.',
+          ),
+        );
+    if (bytes.length != mask.byteLength ||
+        sha256.convert(bytes).toString() != mask.sha256) {
+      await deleteMaskFile(mask.path);
+      throw const SubjectSegmentationException(
+        kind: SubjectFailureKind.malformedOutput,
+        message: 'Subject mask integrity check failed. Try again.',
+      );
     }
   }
 }

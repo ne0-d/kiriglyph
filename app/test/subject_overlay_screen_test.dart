@@ -286,9 +286,11 @@ void main() {
     await tester.pump();
     expect(overlay.segmenter.prompts, hasLength(3));
 
+    await tester.tap(find.text('Free draw'));
+    await tester.pump();
     final gesture = await tester.createGesture();
-    await gesture.down(const Offset(320, 100));
-    await gesture.moveTo(const Offset(520, 100));
+    await gesture.down(const Offset(320, 120));
+    await gesture.moveTo(const Offset(520, 120));
     await gesture.moveTo(const Offset(520, 260));
     await gesture.moveTo(const Offset(320, 260));
     await gesture.up();
@@ -298,7 +300,7 @@ void main() {
     expect(prompt.box, isNotNull);
     expect(prompt.polygon, isNotNull);
     expect(prompt.box!.x, 80);
-    expect(prompt.box!.y, 25);
+    expect(prompt.box!.y, 30);
   });
 
   testWidgets('point prompts stay aligned at 1.25x fitted-image scale', (
@@ -384,7 +386,7 @@ void main() {
     (
       'empty',
       _result(outcome: SubjectMaskOutcome.empty, areaFraction: 0, bounds: null),
-      'No subject found here',
+      'No object found here. Try drawing around it.',
     ),
     (
       'suspect full image',

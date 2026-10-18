@@ -26,20 +26,21 @@ void main() {
     final log = TimingLog.fromEnvironment(const {});
 
     log.beginActivation();
-    log.mark(TimingPhase.capture);
+    log.mark(TimingPhase.portal);
     log.finish(TimingOutcome.dismissed);
 
     expect(log.enabled, isFalse);
   });
 
-  test('writes only phase durations and allowlisted outcomes', () {
+  test('writes activation-relative phase marks and allowlisted outcomes', () {
     final clock = _FakeClock();
     final sink = _MemorySink();
     final log = TimingLog(clock: clock, sink: sink);
 
     log.beginActivation();
+    log.mark(TimingPhase.forward);
     clock.advanceMs(120);
-    log.mark(TimingPhase.capture);
+    log.mark(TimingPhase.portal);
     clock.advanceMs(30);
     log.mark(TimingPhase.crop);
     log.setDisplay(count: 2, scale: 1.25);
@@ -52,9 +53,9 @@ void main() {
     expect(payload['display_count'], 2);
     expect(payload['display_scale'], 1.25);
     expect(payload['phases'], {
-      'shortcut_received_ms': 0.0,
-      'capture_ms': 120.0,
-      'crop_ms': 30.0,
+      'forward_ms': 0.0,
+      'portal_ms': 120.0,
+      'crop_ms': 150.0,
     });
   });
 

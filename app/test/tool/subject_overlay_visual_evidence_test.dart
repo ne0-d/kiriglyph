@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kiriglyph/segmentation/subject_segmenter.dart';
+import 'package:kiriglyph/selection/rectangle_selection.dart';
 import 'package:kiriglyph/selection/subject_prompt_state.dart';
 import 'package:kiriglyph/ui/overlay/overlay_toolbar.dart';
 import 'package:kiriglyph/ui/overlay/subject_mask_alpha.dart';
@@ -222,6 +223,9 @@ Future<void> _pumpEvidence(
                       status: 'Drag across text, or click an object',
                       onCopy: null,
                       onCopyAll: null,
+                      tool: SelectionTool.rectangle,
+                      onToolChanged: (_) {},
+                      onSaveFullScreenshot: null,
                       onClose: () {},
                     ),
                   ),

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+
+# Package removal intentionally leaves running processes and user data alone.
+exit 0

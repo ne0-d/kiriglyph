@@ -1,0 +1,116 @@
+#!/bin/sh
+set -eu
+
+APP_NAME="Kiriglyph"
+APP_VERSION="@VERSION@"
+PACKAGE_ROOT="${KIRIGLYPH_PACKAGE_ROOT:-}"
+APP_ROOT="${PACKAGE_ROOT}/usr/lib/kiriglyph"
+APP_BINARY="${APP_ROOT}/kiriglyph"
+WORKER_ROOT="${APP_ROOT}/worker"
+WORKER_PYTHON="${APP_ROOT}/worker-runtime/bin/python"
+MODELS_DIR="${APP_ROOT}/models"
+
+show_help() {
+  cat <<EOF
+${APP_NAME} ${APP_VERSION}
+
+Usage:
+  kiriglyph [--background|--select|--quit]
+  kiriglyph --setup
+  kiriglyph --version
+  kiriglyph --help
+
+Options:
+  --background  Start the resident app hidden.
+  --select      Open the selection overlay from a shortcut.
+  --quit        Ask the resident app to quit.
+  --setup       Print first-run setup steps and optionally create a GNOME shortcut.
+  --version     Print the packaged Kiriglyph version.
+  --help        Show this help.
+EOF
+}
+
+gnome_shortcut_payload() {
+  "${WORKER_PYTHON}" - "$1" <<'PY'
+import ast
+import sys
+
+item = sys.argv[1]
+try:
+    entries = ast.literal_eval(sys.stdin.read())
+except Exception:
+    entries = []
+if not isinstance(entries, list):
+    entries = []
+if item not in entries:
+    entries.append(item)
+print("[" + ", ".join(repr(value) for value in entries) + "]")
+PY
+}
+
+setup_shortcut() {
+  command="kiriglyph --select"
+  binding="<Control><Super>t"
+
+  cat <<EOF
+Kiriglyph setup
+
+1. Open Kiriglyph once from the app grid and allow screen access when GNOME asks.
+2. Add a GNOME custom shortcut:
+   Name:    Kiriglyph selection
+   Command: ${command}
+   Shortcut: Ctrl+Super+T
+
+EOF
+
+  if ! command -v gsettings >/dev/null 2>&1; then
+    printf 'gsettings is not available, so the shortcut must be created in Settings.\n'
+    return 0
+  fi
+
+  printf 'Create that GNOME custom shortcut now? [y/N] '
+  read answer || answer=
+  case "${answer}" in
+    y|Y|yes|YES) ;;
+    *)
+      printf 'No GNOME settings were changed.\n'
+      return 0
+      ;;
+  esac
+
+  list_schema="org.gnome.settings-daemon.plugins.media-keys"
+  item="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kiriglyph/"
+  binding_schema="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:${item}"
+  current="$(gsettings get "${list_schema}" custom-keybindings 2>/dev/null || printf '[]')"
+  updated="$(printf '%s' "${current}" | gnome_shortcut_payload "${item}")"
+
+  gsettings set "${list_schema}" custom-keybindings "${updated}"
+  gsettings set "${binding_schema}" name "Kiriglyph selection"
+  gsettings set "${binding_schema}" command "${command}"
+  gsettings set "${binding_schema}" binding "${binding}"
+  printf 'GNOME shortcut created: Ctrl+Super+T runs %s\n' "${command}"
+}
+
+case "${1:-}" in
+  --help|-h)
+    show_help
+    exit 0
+    ;;
+  --version)
+    printf '%s %s\n' "${APP_NAME}" "${APP_VERSION}"
+    exit 0
+    ;;
+  --setup)
+    setup_shortcut
+    exit 0
+    ;;
+esac
+
+export KIRIGLYPH_WORKER_ROOT="${WORKER_ROOT}"
+export KIRIGLYPH_WORKER_PYTHON="${WORKER_PYTHON}"
+export KIRIGLYPH_MODELS_DIR="${MODELS_DIR}"
+# The app writes this path into the shortcut and autostart entries.
+export KIRIGLYPH_LAUNCHER="/usr/bin/kiriglyph"
+unset KIRIGLYPH_DEV_INSTANCE
+
+exec "${APP_BINARY}" "$@"

@@ -43,6 +43,11 @@ LASSO_MIN_PREDICTED_IOU = 0.50
 LASSO_MIN_STABILITY = 0.78
 LASSO_MIN_INSIDE_FRACTION = 0.55
 LASSO_DUPLICATE_OVERLAP = 0.82
+# A plain click that lands on empty space makes the model return the backdrop
+# (wallpaper, a window body, a wall). Such a mask is not an object.
+CLICK_BACKGROUND_MAX_FRACTION = 0.35
+CLICK_BACKGROUND_EDGE_FRACTION = 0.12
+CLICK_BACKGROUND_MIN_EDGES = 3
 
 
 @dataclass
@@ -244,6 +249,10 @@ class EfficientSamTiAdapter(SegmentationAdapter):
                         confidence = float(refined_scores[refined_index])
             if cleaned_mask is None:
                 cleaned_mask = postprocess_mask(mask, prompt, embedding.image)
+            if _should_refine_point_prompt(prompt) and _is_background_like(cleaned_mask):
+                # Report "nothing here" instead of selecting a random region.
+                cleaned_mask = np.zeros_like(cleaned_mask, dtype=bool)
+                confidence = 0.0
         stats = analyse_mask(cleaned_mask)
         mask_ref = self._mask_store.write(cleaned_mask)
         prompt_ms = _elapsed_ms(start)
@@ -524,6 +533,27 @@ def _should_accept_refined_clean_mask(original: np.ndarray, refined: np.ndarray)
 
 def _should_need_original_clean_mask(original_raw: np.ndarray, refined_cleaned: np.ndarray) -> bool:
     return _is_container_like(refined_cleaned) and not _is_container_like(original_raw)
+
+
+def _is_background_like(mask: np.ndarray) -> bool:
+    """True when a click mask is the backdrop rather than an object.
+
+    Backdrops are large, or they wrap around the screen edges. A real object
+    can still be lifted by drawing a rectangle or a loop around it.
+    """
+    height, width = mask.shape
+    area_fraction = float(np.count_nonzero(mask)) / max(width * height, 1)
+    if area_fraction > CLICK_BACKGROUND_MAX_FRACTION:
+        return True
+    edges = sum(
+        (
+            bool(np.any(mask[:, 0])),
+            bool(np.any(mask[0, :])),
+            bool(np.any(mask[:, width - 1])),
+            bool(np.any(mask[height - 1, :])),
+        )
+    )
+    return edges >= CLICK_BACKGROUND_MIN_EDGES and area_fraction > CLICK_BACKGROUND_EDGE_FRACTION
 
 
 def _is_container_like(mask: np.ndarray) -> bool:

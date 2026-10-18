@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/constants.dart';
 
 import 'package:kiriglyph/app/app_shell.dart';
+import 'package:kiriglyph/theme/app_theme.dart';
 
-const _headerHeight = 56.0;
 const _compactBreakpoint = 560.0;
 
-/// Compact application bar for the setup window: identity and quit.
+/// In-window toolbar below the GTK header bar: app identity and quit.
 class AppHeader extends ConsumerWidget {
   const AppHeader({super.key});
 
@@ -16,33 +17,42 @@ class AppHeader extends ConsumerWidget {
     final compact = width < _compactBreakpoint;
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final text = theme.textTheme;
 
     return Material(
       color: colors.surface,
       child: SizedBox(
-        height: _headerHeight,
+        height: kYaruAppBarHeight,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+            border: Border(
+              bottom: BorderSide(
+                color: colors.outlineVariant.withValues(
+                  alpha: colors.brightness == Brightness.light ? 1 : 0.6,
+                ),
+              ),
+            ),
           ),
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 20),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? AppSpacing.md : AppSpacing.page,
+            ),
             child: Row(
               children: [
-                _Identity(compact: compact),
+                _Identity(compact: compact, text: text, colors: colors),
                 const Spacer(),
                 if (compact)
                   IconButton(
                     key: const Key('quit-app'),
                     tooltip: 'Quit Kiriglyph',
                     onPressed: () => ref.read(appShellProvider).requestQuit(),
-                    icon: const Icon(Icons.logout_rounded),
+                    icon: Icon(Icons.close, color: colors.onSurface),
                   )
                 else
                   TextButton.icon(
                     key: const Key('quit-app'),
                     onPressed: () => ref.read(appShellProvider).requestQuit(),
-                    icon: const Icon(Icons.logout_rounded, size: 18),
+                    icon: Icon(Icons.close, color: colors.onSurface, size: 18),
                     label: const Text('Quit'),
                   ),
               ],
@@ -55,9 +65,15 @@ class AppHeader extends ConsumerWidget {
 }
 
 class _Identity extends StatelessWidget {
-  const _Identity({required this.compact});
+  const _Identity({
+    required this.compact,
+    required this.text,
+    required this.colors,
+  });
 
   final bool compact;
+  final TextTheme text;
+  final ColorScheme colors;
 
   @override
   Widget build(BuildContext context) {
@@ -68,21 +84,12 @@ class _Identity extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.text_fields_rounded,
-              color: Color(0xFFE95420),
-              size: 22,
-            ),
+            Icon(Icons.text_snippet_outlined, color: colors.primary, size: 20),
             if (!compact) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: AppSpacing.sm),
               Text(
                 'Kiriglyph',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
-                ),
+                style: text.titleMedium?.copyWith(color: colors.onSurface),
               ),
             ],
           ],

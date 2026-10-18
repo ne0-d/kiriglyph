@@ -8,9 +8,12 @@ import 'package:kiriglyph/capture/portal_helper_capture.dart';
 import 'package:kiriglyph/capture/screen_capture.dart';
 import 'package:kiriglyph/capture/session_image_store.dart';
 import 'package:kiriglyph/diagnostics/timing_log.dart';
+import 'package:kiriglyph/export/screenshot_export.dart';
 import 'package:kiriglyph/export/subject_export.dart';
 import 'package:kiriglyph/segmentation/process_subject_segmenter.dart';
 import 'package:kiriglyph/segmentation/subject_segmenter.dart';
+import 'package:kiriglyph/web/link_opener.dart';
+import 'package:kiriglyph/web/web_search_launcher.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
 import 'package:kiriglyph/worker/process_ocr_worker.dart';
 
@@ -83,6 +86,27 @@ final savePngPortProvider = Provider<SavePngPort>(
 
 final subjectImageCodecProvider = Provider<SubjectImageCodec>(
   (ref) => const EngineSubjectImageCodec(),
+);
+
+final screenshotClipboardPortProvider = Provider<ScreenshotClipboardPort>(
+  (ref) => PlatformScreenshotClipboardPort(),
+);
+
+final screenshotImageCodecProvider = Provider<ScreenshotImageCodec>(
+  (ref) => const EngineScreenshotImageCodec(),
+);
+
+final screenshotExportControllerProvider = Provider<ScreenshotExportController>(
+  (ref) => ScreenshotExportController(
+    clipboard: ref.watch(screenshotClipboardPortProvider),
+    codec: ref.watch(screenshotImageCodecProvider),
+  ),
+);
+
+final linkOpenerProvider = Provider<LinkOpener>((ref) => const LinkOpener());
+
+final webSearchLauncherProvider = Provider<WebSearchLauncher>(
+  (ref) => const WebSearchLauncher(),
 );
 
 final subjectExportControllerProvider = Provider<SubjectExportController>(

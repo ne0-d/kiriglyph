@@ -15,3 +15,5 @@ Domain documentation uses a single-context root glossary and ADR directory. See 
 ### Development workflow
 
 Model selection, sub-agent limits, escalation, and task-scoping rules follow the fit-for-purpose compute policy. See `docs/agents/development-workflow-playbook.md`.
+
+Tool paths, gotchas, the `scripts/check.sh` completion check, and fixture rules: `docs/agents/dev-commands.md`.

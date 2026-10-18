@@ -14,16 +14,21 @@ enum TimingOutcome {
 }
 
 enum TimingPhase {
-  shortcutReceived('shortcut_received_ms'),
-  capture('capture_ms'),
+  forward('forward_ms'),
+  portal('portal_ms'),
+  read('read_ms'),
+  decode('decode_ms'),
+  map('map_ms'),
   crop('crop_ms'),
-  ocr('ocr_ms'),
-  firstPaint('first_paint_ms'),
+  reveal('reveal_ms'),
+  pngEncode('png_encode_ms'),
+  ocrDispatch('ocr_dispatch_ms'),
+  ocrResult('ocr_result_ms'),
   embed('embed_ms'),
   prompt('prompt_ms'),
   maskRender('mask_render_ms'),
   clipboard('clipboard_ms'),
-  pngEncode('png_encode_ms');
+  firstPaint('first_paint_ms');
 
   const TimingPhase(this.jsonKey);
 
@@ -54,7 +59,7 @@ class FileTimingSink implements TimingSink {
 
   @override
   void appendLine(String line) {
-    File(path).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+    File(path).writeAsString('$line\n', mode: FileMode.append);
   }
 }
 
@@ -89,8 +94,7 @@ class TimingLog {
       return;
     }
     final now = _clock.nowMicros();
-    _active = _TimingActivation(startedMicros: now, lastMicros: now);
-    mark(TimingPhase.shortcutReceived);
+    _active = _TimingActivation(startedMicros: now);
   }
 
   void mark(TimingPhase phase) {
@@ -99,8 +103,7 @@ class TimingLog {
       return;
     }
     final now = _clock.nowMicros();
-    active.durations[phase] = (now - active.lastMicros) / 1000.0;
-    active.lastMicros = now;
+    active.marks[phase] = (now - active.startedMicros) / 1000.0;
   }
 
   void setDisplay({required int count, required double scale}) {
@@ -125,7 +128,7 @@ class TimingLog {
       if (active.displayScale != null) 'display_scale': active.displayScale,
       'total_ms': (_clock.nowMicros() - active.startedMicros) / 1000.0,
       'phases': {
-        for (final entry in active.durations.entries)
+        for (final entry in active.marks.entries)
           entry.key.jsonKey: entry.value,
       },
     };
@@ -135,13 +138,12 @@ class TimingLog {
 }
 
 class _TimingActivation {
-  _TimingActivation({required this.startedMicros, required this.lastMicros});
+  _TimingActivation({required this.startedMicros});
 
   final int startedMicros;
-  int lastMicros;
   int? displayCount;
   double? displayScale;
-  final durations = <TimingPhase, double>{};
+  final marks = <TimingPhase, double>{};
 }
 
 const timingTopLevelKeys = {
@@ -153,16 +155,21 @@ const timingTopLevelKeys = {
   'phases',
 };
 const timingPhaseKeys = {
-  'shortcut_received_ms',
-  'capture_ms',
+  'forward_ms',
+  'portal_ms',
+  'read_ms',
+  'decode_ms',
+  'map_ms',
   'crop_ms',
-  'ocr_ms',
-  'first_paint_ms',
+  'reveal_ms',
+  'png_encode_ms',
+  'ocr_dispatch_ms',
+  'ocr_result_ms',
   'embed_ms',
   'prompt_ms',
   'mask_render_ms',
   'clipboard_ms',
-  'png_encode_ms',
+  'first_paint_ms',
 };
 const timingOutcomeValues = {
   'ready',

@@ -103,6 +103,14 @@ flowchart LR
   report are ready; the remaining work is the real GNOME Wayland manual
   checklist and final alpha decision.
 
+## Milestone D: Beta polish
+
+- **25** Selection experience, native Ubuntu look, and accessibility:
+  rectangle default, screenshot save and copy, smart detection and web search,
+  Yaru look, draggable toolbar, persistent glow, accessibility must-haves.
+- **26** Resident app, top-bar icon, instant open, and beta `.deb`. Runs in
+  parallel with 25; the `.deb` waits for 25's worker dependencies.
+
 ## V0 boundaries
 
 - Ubuntu 26.04 GNOME 50 Wayland is the acceptance target.

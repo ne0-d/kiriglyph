@@ -4,17 +4,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:kiriglyph/capture/capture_session.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/protocol/protocol_error.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
 import 'package:kiriglyph/providers.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
 
 class _CountingWorker implements OcrWorker {
   int cancelCalls = 0;
+  int cancelInFlightCalls = 0;
 
   @override
   Future<void> cancelActive() async => cancelCalls++;
 
   @override
+  Future<void> cancelInFlight() async => cancelInFlightCalls++;
+
+  @override
   Future<OcrResult> recognize(String imagePath) => throw UnimplementedError();
+
+  @override
+  Future<List<DecodedCode>> decodeCodes(String imagePath) =>
+      throw UnimplementedError();
 
   @override
   Future<void> restart() async {}
@@ -24,7 +33,7 @@ class _CountingWorker implements OcrWorker {
 }
 
 void main() {
-  test('discardSession cancels the worker', () async {
+  test('discardSession cancels only in-flight OCR', () async {
     final worker = _CountingWorker();
     final container = ProviderContainer(
       overrides: [ocrWorkerProvider.overrideWithValue(worker)],
@@ -32,7 +41,8 @@ void main() {
     addTearDown(container.dispose);
 
     await container.read(captureSessionProvider.notifier).discardSession();
-    expect(worker.cancelCalls, 1);
+    expect(worker.cancelInFlightCalls, 1);
+    expect(worker.cancelCalls, 0, reason: 'warm worker must stay alive');
   });
 
   test('worker and OCR failures have distinct safe outcomes', () {

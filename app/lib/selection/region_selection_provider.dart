@@ -55,6 +55,12 @@ class RegionSelectionController extends Notifier<RegionSelection> {
   void moveHorizontal(int direction, {required bool extend}) =>
       state = state.moveHorizontal(direction, extend: extend);
 
+  void moveByWord(int direction, {required bool extend}) =>
+      state = state.moveByWord(direction, extend: extend);
+
+  void moveToLineEdge({required bool end, required bool extend}) =>
+      state = state.moveToLineEdge(end: end, extend: extend);
+
   void moveVertical(int direction, {required bool extend}) =>
       state = state.moveVertical(direction, extend: extend);
 

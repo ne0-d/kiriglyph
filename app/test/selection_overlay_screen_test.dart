@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show PointerDeviceKind;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -63,7 +64,7 @@ class _Overlay {
 }
 
 Future<void> _drawStroke(WidgetTester tester, List<Offset> points) async {
-  final gesture = await tester.createGesture();
+  final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
   await gesture.down(points.first);
   await tester.pump();
   for (final point in points.skip(1)) {
@@ -264,6 +265,8 @@ void main() {
 
   testWidgets('off-text stroke selects frozen full-bleed text', (tester) async {
     await openOverlay(tester, result: _displaySizedResult());
+    await tester.tap(find.text('Free draw'));
+    await tester.pump();
 
     await _drawStroke(tester, const [
       Offset(175, 90),
@@ -278,6 +281,29 @@ void main() {
     await tester.pump();
 
     expect(clipboardText, 'one two');
+  });
+
+  testWidgets('the loop hint chip never overlaps the action chip', (
+    tester,
+  ) async {
+    await openOverlay(tester, result: _displaySizedResult());
+    await tester.tap(find.text('Free draw'));
+    await tester.pump();
+    await _drawStroke(tester, const [
+      Offset(175, 90),
+      Offset(250, 90),
+      Offset(250, 140),
+      Offset(175, 140),
+      Offset(175, 90),
+    ]);
+    await tester.pump(const Duration(seconds: 1));
+
+    final hint = find.byKey(const Key('selection-loop-hint-chip'));
+    final actions = find.byKey(const Key('selection-action-chip'));
+    expect(hint, findsOneWidget);
+    expect(actions, findsOneWidget);
+    expect(tester.getRect(hint).overlaps(tester.getRect(actions)), isFalse);
+    await tester.pump(const Duration(seconds: 1));
   });
 
   testWidgets('entry glow and scanning sweep run while recognizing', (

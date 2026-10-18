@@ -8,6 +8,7 @@ import 'package:kiriglyph/capture/screen_capture.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/overlay/display_layout.dart';
 import 'package:kiriglyph/overlay/overlay_frame.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
 
 /// Two displays side by side: a 200x100 one and a 100x50 one to its right.
@@ -66,6 +67,9 @@ class FakeShell implements AppShell {
     }
     return placement;
   }
+
+  @override
+  Future<void> revealOverlay() async => events.add('reveal');
 
   @override
   Future<void> hideOverlay() async {
@@ -168,10 +172,14 @@ class ControlledWorker implements OcrWorker {
 
   OcrResult? next;
   Object? error;
+  List<DecodedCode> nextCodes = const [];
   final paths = <String>[];
+  final codePaths = <String>[];
   final pending = <Completer<OcrResult>>[];
+  final pendingCodes = <Completer<List<DecodedCode>>>[];
   int restarts = 0;
   int cancels = 0;
+  int inFlightCancels = 0;
 
   @override
   Future<OcrResult> recognize(String imagePath) async {
@@ -190,7 +198,21 @@ class ControlledWorker implements OcrWorker {
   }
 
   @override
+  Future<List<DecodedCode>> decodeCodes(String imagePath) async {
+    codePaths.add(imagePath);
+    if (nextCodes.isNotEmpty) {
+      return nextCodes;
+    }
+    final completer = Completer<List<DecodedCode>>();
+    pendingCodes.add(completer);
+    return completer.future;
+  }
+
+  @override
   Future<void> restart() async => restarts++;
+
+  @override
+  Future<void> cancelInFlight() async => inFlightCancels++;
 
   @override
   Future<void> cancelActive() async => cancels++;

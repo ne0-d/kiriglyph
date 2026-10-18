@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:kiriglyph/ocr/ocr_result.dart';
+import 'package:kiriglyph/selection/text_word_boundary.dart';
 
 @immutable
 class TextPosition {
@@ -307,6 +308,92 @@ class RegionSelection {
     return character == null
         ? this
         : selectCharacter(character.regionId, character.offset);
+  }
+
+  /// Ctrl+Left / Ctrl+Right. Extending moves the active boundary past the
+  /// next word; otherwise the next word replaces the selection.
+  RegionSelection moveByWord(int direction, {required bool extend}) {
+    if (direction == 0 || regions.isEmpty) {
+      return this;
+    }
+    if (!hasSelection) {
+      return direction > 0
+          ? _selectWordFrom(0, 0, 1)
+          : _selectWordFrom(
+              regions.length - 1,
+              _length(regions.length - 1),
+              -1,
+            );
+    }
+    if (extend) {
+      final focus = _focus!;
+      var index = _indexById[focus.regionId]!;
+      var offset = focus.offset;
+      while (index >= 0 && index < regions.length) {
+        final word = direction > 0
+            ? nextWordAfter(regions[index].text, offset)
+            : previousWordBefore(regions[index].text, offset);
+        if (word != null) {
+          return extendToPosition(
+            TextPosition(
+              regionId: regions[index].id,
+              offset: direction > 0 ? word.end : word.start,
+            ),
+          );
+        }
+        index += direction;
+        if (index < 0 || index >= regions.length) {
+          break;
+        }
+        offset = direction > 0 ? 0 : _length(index);
+      }
+      return this;
+    }
+    final bounds = _selectionBounds!;
+    final edge = direction > 0 ? bounds.$2 : bounds.$1;
+    return _selectWordFrom(_indexById[edge.regionId]!, edge.offset, direction);
+  }
+
+  RegionSelection _selectWordFrom(int index, int offset, int direction) {
+    var line = index;
+    var from = offset;
+    while (line >= 0 && line < regions.length) {
+      final word = direction > 0
+          ? nextWordAfter(regions[line].text, from)
+          : previousWordBefore(regions[line].text, from);
+      if (word != null) {
+        return selectRange(regions[line].id, word.start, word.end);
+      }
+      line += direction;
+      if (line < 0 || line >= regions.length) {
+        break;
+      }
+      from = direction > 0 ? 0 : _length(line);
+    }
+    return this;
+  }
+
+  /// Home / End. Extending moves the active boundary to the start or end of
+  /// its line; otherwise the first or last character of the line is selected.
+  RegionSelection moveToLineEdge({required bool end, required bool extend}) {
+    if (regions.isEmpty) {
+      return this;
+    }
+    if (!hasSelection) {
+      return end ? _selectLastAvailable() : _selectFirstAvailable();
+    }
+    final focus = _focus!;
+    final index = _indexById[focus.regionId]!;
+    final length = _length(index);
+    if (extend) {
+      return extendToPosition(
+        TextPosition(regionId: focus.regionId, offset: end ? length : 0),
+      );
+    }
+    if (length == 0) {
+      return this;
+    }
+    return selectCharacter(focus.regionId, end ? length - 1 : 0);
   }
 
   RegionSelection moveVertical(int direction, {required bool extend}) {

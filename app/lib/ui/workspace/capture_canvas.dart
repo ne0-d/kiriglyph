@@ -6,14 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:kiriglyph/a11y/dual_stroke.dart';
+import 'package:kiriglyph/a11y/overlay_announcer.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/selection/freehand_selection_geometry.dart';
 import 'package:kiriglyph/selection/paragraph_grouping.dart';
 import 'package:kiriglyph/selection/region_selection.dart';
 import 'package:kiriglyph/selection/region_selection_provider.dart';
+import 'package:kiriglyph/selection/rectangle_selection.dart' as rect;
 import 'package:kiriglyph/selection/selection_intent.dart';
 import 'package:kiriglyph/theme/app_theme.dart';
+import 'package:kiriglyph/ui/motion/motion_policy.dart';
 import 'package:kiriglyph/ui/workspace/capture_image.dart';
+import 'package:kiriglyph/ui/workspace/freehand_stroke_painter.dart';
 import 'package:kiriglyph/ui/workspace/character_hit_test.dart';
 import 'package:kiriglyph/ui/workspace/character_line_target.dart';
 import 'package:kiriglyph/ui/workspace/fitted_image_geometry.dart';
@@ -23,6 +28,7 @@ const _canvasPadding = 24.0;
 const _minZoom = 1.0;
 const _maxZoom = 4.0;
 const _zoomStep = 0.25;
+const _clickMovementTolerance = 18.0;
 
 /// Dark inspection canvas: the image fitted with `BoxFit.contain`, with OCR
 /// regions painted and hit-tested from the same fitted rectangle.
@@ -35,6 +41,12 @@ class CaptureCanvas extends ConsumerStatefulWidget {
     this.onObjectPoint,
     this.onObjectLoop,
     this.onLoopInterpreted,
+    this.selectionTool = rect.SelectionTool.freeDraw,
+    this.onRectangleSelectionChanged,
+    this.onRectangleSelectionFinished,
+    this.focusNode,
+    this.rectangleClearToken = 0,
+    this.cursorScale = 1,
   }) : fullBleed = false;
 
   /// Selection over pixels the parent paints edge to edge underneath: no
@@ -46,6 +58,12 @@ class CaptureCanvas extends ConsumerStatefulWidget {
     this.onObjectPoint,
     this.onObjectLoop,
     this.onLoopInterpreted,
+    this.selectionTool = rect.SelectionTool.rectangle,
+    this.onRectangleSelectionChanged,
+    this.onRectangleSelectionFinished,
+    this.focusNode,
+    this.rectangleClearToken = 0,
+    this.cursorScale = 1,
   }) : imagePath = null,
        fullBleed = true;
 
@@ -58,6 +76,16 @@ class CaptureCanvas extends ConsumerStatefulWidget {
   onObjectLoop;
   final void Function(List<Point> stroke, LoopInterpretation interpretation)?
   onLoopInterpreted;
+  final rect.SelectionTool selectionTool;
+  final void Function(rect.SelectionRect? rect)? onRectangleSelectionChanged;
+  final void Function(rect.SelectionRect rect)? onRectangleSelectionFinished;
+  final FocusNode? focusNode;
+
+  /// Bump to drop the active rectangle (Escape from outside the canvas).
+  final int rectangleClearToken;
+
+  /// GNOME cursor-size scale for handles; 1 at the default size.
+  final double cursorScale;
 
   @override
   ConsumerState<CaptureCanvas> createState() => _CaptureCanvasState();
@@ -67,7 +95,10 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
     with SingleTickerProviderStateMixin {
   final TransformationController _transformation = TransformationController();
   final GlobalKey _viewportKey = GlobalKey();
-  final FocusNode _focusNode = FocusNode(debugLabel: 'capture canvas');
+  late final FocusNode _ownedFocusNode = FocusNode(
+    debugLabel: 'capture canvas',
+  );
+  FocusNode get _focusNode => widget.focusNode ?? _ownedFocusNode;
   late final AnimationController _strokeFade;
   late final Animation<double> _strokeOpacity;
   Timer? _strokeClearTimer;
@@ -79,6 +110,15 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
   bool _strokeStartedOnText = false;
   bool _textGestureStarted = false;
   bool _hoveringText = false;
+  int? _rectanglePointer;
+  Point? _rectangleStart;
+  bool _rectangleStartedOnText = false;
+  SelectionModifiers _rectangleModifiers = const SelectionModifiers();
+  rect.RectangleSelection? _rectangleSelection;
+  rect.TwoClickRectangleSession _twoClickSession =
+      const rect.TwoClickRectangleSession();
+  int? _twoClickPointer;
+  Offset? _twoClickDown;
   OcrResult? _paragraphResult;
   List<TextParagraph> _paragraphGroups = const [];
 
@@ -105,13 +145,34 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
   }
 
   @override
+  void didUpdateWidget(CaptureCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.rectangleClearToken != widget.rectangleClearToken) {
+      _resetTwoClickRectangle(clearOverlay: false);
+      setState(() => _rectangleSelection = null);
+    } else if (oldWidget.selectionTool != widget.selectionTool) {
+      _resetTwoClickRectangle();
+    }
+  }
+
+  void _resetTwoClickRectangle({bool clearOverlay = true}) {
+    _twoClickPointer = null;
+    _twoClickDown = null;
+    _twoClickSession = const rect.TwoClickRectangleSession();
+    setState(() => _rectangleSelection = null);
+    if (clearOverlay) {
+      widget.onRectangleSelectionChanged?.call(null);
+    }
+  }
+
+  @override
   void dispose() {
     _transformation
       ..removeListener(_updateZoom)
       ..dispose();
     _strokeClearTimer?.cancel();
     _strokeFade.dispose();
-    _focusNode.dispose();
+    _ownedFocusNode.dispose();
     super.dispose();
   }
 
@@ -127,8 +188,11 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
     _transformation.value = Matrix4.diagonal3Values(next, next, 1);
   }
 
+  MotionPolicy _motionPolicy(BuildContext context) =>
+      ref.watch(motionPolicyProvider(MediaQuery.disableAnimationsOf(context)));
+
   void _finishStrokeAnimation(BuildContext context) {
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (_motionPolicy(context) == MotionPolicy.reduced) {
       _strokeClearTimer?.cancel();
       setState(() {
         _strokeSourcePoints = const [];
@@ -148,9 +212,14 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
     }
   }
 
+  bool _strokeLoopPreview() =>
+      _strokeSourcePoints.length >= 3 &&
+      _distance(_strokeSourcePoints.first, _strokeSourcePoints.last) < 28;
+
   @override
   Widget build(BuildContext context) {
     final selection = ref.watch(regionSelectionProvider);
+    final motion = _motionPolicy(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -212,8 +281,65 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
           );
         }
 
+        final imageBounds = rect.SelectionRect(
+          left: 0,
+          top: 0,
+          right: widget.ocrResult.imageWidth.toDouble(),
+          bottom: widget.ocrResult.imageHeight.toDouble(),
+        );
+
+        void setRectangle(rect.RectangleSelection? rectSelection) {
+          setState(() => _rectangleSelection = rectSelection);
+          widget.onRectangleSelectionChanged?.call(rectSelection?.rect);
+        }
+
+        void finishRectangle(rect.RectangleSelection rectSelection) {
+          if (!rectSelection.rect.isUsable) {
+            setRectangle(null);
+            return;
+          }
+          widget.onTextSelectionStarted?.call();
+          ref.read(regionSelectionProvider.notifier).selectLineRanges({
+            for (final region in widget.ocrResult.regions)
+              if (_rectCoverage(rectSelection.rect, region) >= 0.60)
+                region.id: (0, region.text.runes.length),
+          });
+          setRectangle(rectSelection);
+          widget.onRectangleSelectionFinished?.call(rectSelection.rect);
+        }
+
+        void startRectangle(PointerDownEvent event) {
+          final primary =
+              event.buttons == 0 || event.buttons & kPrimaryButton != 0;
+          if (!primary || _rectanglePointer != null) {
+            return;
+          }
+          final scene = scenePointFromViewport(event.localPosition);
+          final source = geometry.unmapPoint(scene);
+          final modifiers = SelectionModifiers(
+            shift: HardwareKeyboard.instance.isShiftPressed,
+            alt: HardwareKeyboard.instance.isAltPressed,
+            secondary: false,
+            control: HardwareKeyboard.instance.isControlPressed,
+          );
+          final startsOnText = isTextStart(source: source, scene: scene);
+          if (startsOnText && !modifiers.control) {
+            return;
+          }
+          _focusNode.requestFocus();
+          setState(() {
+            _rectanglePointer = event.pointer;
+            _rectangleStart = source;
+            _rectangleStartedOnText = startsOnText;
+            _rectangleModifiers = modifiers;
+            _rectangleSelection = _rectangleFromPoints(source, source);
+          });
+          widget.onRectangleSelectionChanged?.call(_rectangleSelection?.rect);
+        }
+
         void startFreehandStroke(PointerDownEvent event) {
-          final primary = event.buttons & kPrimaryButton != 0;
+          final primary =
+              event.buttons == 0 || event.buttons & kPrimaryButton != 0;
           final secondary = event.buttons & kSecondaryMouseButton != 0;
           if ((!primary && !secondary) || _strokePointer != null) {
             return;
@@ -228,6 +354,11 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
           );
           final startsOnText = isTextStart(source: source, scene: scene);
           if (startsOnText && !modifiers.control) {
+            return;
+          }
+          if (widget.selectionTool == rect.SelectionTool.rectangle &&
+              !modifiers.control &&
+              !secondary) {
             return;
           }
           _focusNode.requestFocus();
@@ -256,7 +387,82 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
           });
         }
 
+        void announceTwoClick(String message) {
+          ref.read(overlayAnnouncerProvider).announce(message, immediate: true);
+        }
+
+        void updateTwoClickPreview(Offset viewportPoint) {
+          if (!_twoClickSession.awaitingSecondClick) {
+            return;
+          }
+          final source = sourcePointFromViewport(viewportPoint);
+          final preview = _twoClickSession.preview(
+            rect.SelectionPoint(source.x, source.y),
+          );
+          if (preview != null) {
+            setRectangle(preview);
+          }
+        }
+
+        void startTwoClick(PointerDownEvent event) {
+          final primary =
+              event.buttons == 0 || event.buttons & kPrimaryButton != 0;
+          if (!primary || _twoClickPointer != null) {
+            return;
+          }
+          _focusNode.requestFocus();
+          setState(() {
+            _twoClickPointer = event.pointer;
+            _twoClickDown = event.localPosition;
+          });
+        }
+
+        void finishTwoClick(PointerUpEvent event) {
+          if (event.pointer != _twoClickPointer) {
+            return;
+          }
+          final down = _twoClickDown;
+          _twoClickPointer = null;
+          _twoClickDown = null;
+          if (down == null) {
+            return;
+          }
+          if ((down - event.localPosition).distance > _clickMovementTolerance) {
+            return;
+          }
+          final source = sourcePointFromViewport(event.localPosition);
+          final point = rect.SelectionPoint(source.x, source.y);
+          final outcome = _twoClickSession.applyClick(point);
+          final completed = outcome.selection;
+          setState(() => _twoClickSession = outcome.session);
+          if (completed != null) {
+            if (!completed.rect.isUsable) {
+              setRectangle(null);
+              return;
+            }
+            finishRectangle(completed);
+            announceTwoClick('Second corner set');
+            return;
+          }
+          announceTwoClick(
+            'First corner set. Move the pointer and click the opposite corner.',
+          );
+          updateTwoClickPreview(event.localPosition);
+        }
+
         void updateFreehandStroke(PointerMoveEvent event) {
+          if (widget.selectionTool == rect.SelectionTool.twoClicks &&
+              event.pointer != _twoClickPointer) {
+            updateTwoClickPreview(event.localPosition);
+          }
+          if (event.pointer == _rectanglePointer) {
+            final start = _rectangleStart;
+            if (start != null) {
+              final source = sourcePointFromViewport(event.localPosition);
+              setRectangle(_rectangleFromPoints(start, source));
+            }
+            return;
+          }
           if (event.pointer != _strokePointer) {
             return;
           }
@@ -264,6 +470,39 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
         }
 
         void finishFreehandStroke(PointerUpEvent event) {
+          if (event.pointer == _rectanglePointer) {
+            final start = _rectangleStart;
+            final source = sourcePointFromViewport(event.localPosition);
+            _rectanglePointer = null;
+            _rectangleStart = null;
+            if (start != null) {
+              final selection = _rectangleFromPoints(start, source);
+              if (!selection.rect.isUsable &&
+                  fullBleed &&
+                  widget.onObjectPoint != null) {
+                final intent = classifyPointerDownIntent(
+                  startsOnText: _rectangleStartedOnText,
+                  modifiers: _rectangleModifiers,
+                  isClick: true,
+                );
+                switch (intent) {
+                  case ObjectClickIntent() ||
+                      ObjectAddForegroundIntent() ||
+                      ObjectAddBackgroundIntent():
+                    widget.onObjectPoint?.call(source, intent);
+                  case ClearSelectionIntent():
+                    widget.onTextSelectionStarted?.call();
+                    ref.read(regionSelectionProvider.notifier).clear();
+                  default:
+                    ref.read(regionSelectionProvider.notifier).clear();
+                }
+                setRectangle(null);
+              } else {
+                finishRectangle(selection);
+              }
+            }
+            return;
+          }
           if (event.pointer != _strokePointer) {
             return;
           }
@@ -357,6 +596,13 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
         }
 
         void cancelFreehandStroke(PointerCancelEvent event) {
+          if (event.pointer == _rectanglePointer) {
+            setState(() {
+              _rectanglePointer = null;
+              _rectangleStart = null;
+            });
+            return;
+          }
           if (event.pointer != _strokePointer) {
             return;
           }
@@ -374,6 +620,9 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
           final hovering = isTextStart(source: source, scene: scene);
           if (hovering != _hoveringText) {
             setState(() => _hoveringText = hovering);
+          }
+          if (widget.selectionTool == rect.SelectionTool.twoClicks) {
+            updateTwoClickPreview(event.localPosition);
           }
         }
 
@@ -438,11 +687,79 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
                 control ||
                 HardwareKeyboard.instance.isAltPressed ||
                 HardwareKeyboard.instance.isMetaPressed;
+            final rectangle = _rectangleSelection;
+            if (widget.selectionTool == rect.SelectionTool.rectangle &&
+                rectangle != null) {
+              final command = switch (event.logicalKey) {
+                LogicalKeyboardKey.arrowLeft =>
+                  rect.RectangleKeyboardCommand.arrowLeft,
+                LogicalKeyboardKey.arrowRight =>
+                  rect.RectangleKeyboardCommand.arrowRight,
+                LogicalKeyboardKey.arrowUp =>
+                  rect.RectangleKeyboardCommand.arrowUp,
+                LogicalKeyboardKey.arrowDown =>
+                  rect.RectangleKeyboardCommand.arrowDown,
+                _ => null,
+              };
+              if (command != null) {
+                final next = rectangle.applyKeyboard(
+                  command,
+                  modifiers: rect.RectangleKeyboardModifiers(
+                    alt: HardwareKeyboard.instance.isAltPressed,
+                    control: control,
+                    shift: shift,
+                  ),
+                  bounds: imageBounds,
+                );
+                finishRectangle(next);
+                return KeyEventResult.handled;
+              }
+              if (event.logicalKey == LogicalKeyboardKey.keyR) {
+                finishRectangle(rectangle.reset(imageBounds));
+                return KeyEventResult.handled;
+              }
+            } else if (widget.selectionTool == rect.SelectionTool.rectangle &&
+                event.logicalKey == LogicalKeyboardKey.keyR &&
+                !control &&
+                !HardwareKeyboard.instance.isAltPressed) {
+              // Keyboard twin of dragging a rectangle: start one in the
+              // middle of the display, then resize and move it with keys.
+              final width = imageBounds.right;
+              final height = imageBounds.bottom;
+              finishRectangle(
+                rect.RectangleSelection(
+                  rect.SelectionRect(
+                    left: width / 4,
+                    top: height / 4,
+                    right: width * 3 / 4,
+                    bottom: height * 3 / 4,
+                  ),
+                ),
+              );
+              ref
+                  .read(overlayAnnouncerProvider)
+                  .announce(
+                    'Rectangle started. Arrow keys resize, Alt plus arrow '
+                    'keys move, Escape removes it.',
+                    immediate: true,
+                  );
+              return KeyEventResult.handled;
+            }
             switch (event.logicalKey) {
               case LogicalKeyboardKey.arrowDown when control && shift:
                 selectionController.extendByParagraph(paragraphGroups, 1);
               case LogicalKeyboardKey.arrowUp when control && shift:
                 selectionController.extendByParagraph(paragraphGroups, -1);
+              case LogicalKeyboardKey.arrowLeft
+                  when control && !HardwareKeyboard.instance.isAltPressed:
+                selectionController.moveByWord(-1, extend: shift);
+              case LogicalKeyboardKey.arrowRight
+                  when control && !HardwareKeyboard.instance.isAltPressed:
+                selectionController.moveByWord(1, extend: shift);
+              case LogicalKeyboardKey.home when !modifiedArrow:
+                selectionController.moveToLineEdge(end: false, extend: shift);
+              case LogicalKeyboardKey.end when !modifiedArrow:
+                selectionController.moveToLineEdge(end: true, extend: shift);
               case LogicalKeyboardKey.arrowLeft when !modifiedArrow:
                 selectionController.moveHorizontal(-1, extend: shift);
               case LogicalKeyboardKey.arrowRight when !modifiedArrow:
@@ -454,7 +771,7 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
               case LogicalKeyboardKey.keyA when control:
                 widget.onTextSelectionStarted?.call();
                 selectionController.selectAll();
-              case LogicalKeyboardKey.keyC when control:
+              case LogicalKeyboardKey.keyC when control && !shift:
                 if (ref.read(regionSelectionProvider).hasSelection) {
                   ref.read(copySelectionRequestProvider.notifier).request();
                 } else {
@@ -496,9 +813,19 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
                     onHover: updateCursor,
                     child: Listener(
                       behavior: HitTestBehavior.opaque,
-                      onPointerDown: startFreehandStroke,
+                      onPointerDown: switch (widget.selectionTool) {
+                        rect.SelectionTool.rectangle => (event) {
+                          startRectangle(event);
+                          startFreehandStroke(event);
+                        },
+                        rect.SelectionTool.twoClicks => startTwoClick,
+                        rect.SelectionTool.freeDraw => startFreehandStroke,
+                      },
                       onPointerMove: updateFreehandStroke,
-                      onPointerUp: finishFreehandStroke,
+                      onPointerUp: (event) {
+                        finishTwoClick(event);
+                        finishFreehandStroke(event);
+                      },
                       onPointerCancel: cancelFreehandStroke,
                       child: InteractiveViewer(
                         transformationController: _transformation,
@@ -606,6 +933,48 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
                       ),
                     ),
                   ),
+                  if (_rectangleSelection != null)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          key: const Key('rectangle-selection-overlay'),
+                          painter: _RectangleSelectionPainter(
+                            selection: _rectangleSelection!,
+                            geometry: geometry,
+                            transform: _transformation.value,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (widget.selectionTool == rect.SelectionTool.twoClicks &&
+                      _twoClickSession.firstCorner != null)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          key: const Key('two-click-corner-marker'),
+                          painter: _TwoClickCornerMarkerPainter(
+                            corner: _twoClickSession.firstCorner!,
+                            geometry: geometry,
+                            transform: _transformation.value,
+                            color: AppColors.neonMagenta,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (fullBleed)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: ListenableBuilder(
+                          listenable: _focusNode,
+                          builder: (context, _) => _CanvasFocusRing(
+                            visible:
+                                _focusNode.hasFocus &&
+                                FocusManager.instance.highlightMode ==
+                                    FocusHighlightMode.traditional,
+                          ),
+                        ),
+                      ),
+                    ),
                   if (_strokeSourcePoints.isNotEmpty)
                     Positioned.fill(
                       child: IgnorePointer(
@@ -614,14 +983,17 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
                           builder: (context, _) {
                             return CustomPaint(
                               key: const Key('freehand-selection-stroke'),
-                              painter: _FreehandStrokePainter(
+                              painter: FreehandStrokePainter(
                                 points: _strokeSourcePoints,
                                 geometry: geometry,
                                 transform: _transformation.value,
                                 opacity: _strokePointer == null
                                     ? _strokeOpacity.value
                                     : 1,
-                                color: Theme.of(context).colorScheme.primary,
+                                color: AppColors.neonMagenta,
+                                secondaryColor: AppColors.neonOrchid,
+                                policy: motion,
+                                closedLoop: _strokeLoopPreview(),
                               ),
                             );
                           },
@@ -659,10 +1031,49 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
   static Point _pointFromOffset(Offset offset) =>
       Point(x: offset.dx, y: offset.dy);
 
+  static rect.RectangleSelection _rectangleFromPoints(Point start, Point end) =>
+      rect.RectangleSelection.fromDrag(
+        rect.SelectionPoint(start.x, start.y),
+        rect.SelectionPoint(end.x, end.y),
+      );
+
   static double _distance(Point first, Point second) {
     final dx = first.x - second.x;
     final dy = first.y - second.y;
     return math.sqrt(dx * dx + dy * dy);
+  }
+
+  static double _rectCoverage(rect.SelectionRect rect, TextRegion region) {
+    final regionBounds = _sourceBounds(region.polygon);
+    final left = math.max(rect.left, regionBounds.left);
+    final top = math.max(rect.top, regionBounds.top);
+    final right = math.min(rect.right, regionBounds.right);
+    final bottom = math.min(rect.bottom, regionBounds.bottom);
+    final intersection = math.max(0, right - left) * math.max(0, bottom - top);
+    final area = regionBounds.width * regionBounds.height;
+    return area <= 0 ? 0 : intersection / area;
+  }
+
+  static rect.SelectionRect _sourceBounds(List<Point> points) {
+    if (points.isEmpty) {
+      return const rect.SelectionRect(left: 0, top: 0, right: 0, bottom: 0);
+    }
+    var left = points.first.x;
+    var top = points.first.y;
+    var right = points.first.x;
+    var bottom = points.first.y;
+    for (final point in points.skip(1)) {
+      left = math.min(left, point.x);
+      top = math.min(top, point.y);
+      right = math.max(right, point.x);
+      bottom = math.max(bottom, point.y);
+    }
+    return rect.SelectionRect(
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+    );
   }
 
   List<TextParagraph> _paragraphsFor(
@@ -699,74 +1110,120 @@ class _CaptureCanvasState extends ConsumerState<CaptureCanvas>
   }
 }
 
-class _FreehandStrokePainter extends CustomPainter {
-  const _FreehandStrokePainter({
-    required this.points,
+class _RectangleSelectionPainter extends CustomPainter {
+  const _RectangleSelectionPainter({
+    required this.selection,
     required this.geometry,
     required this.transform,
-    required this.opacity,
+  });
+
+  final rect.RectangleSelection selection;
+  final FittedImageGeometry geometry;
+  final Matrix4 transform;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final source = selection.rect;
+    final topLeft = MatrixUtils.transformPoint(
+      transform,
+      geometry.mapPoint(Point(x: source.left, y: source.top)),
+    );
+    final bottomRight = MatrixUtils.transformPoint(
+      transform,
+      geometry.mapPoint(Point(x: source.right, y: source.bottom)),
+    );
+    final drawnRect = Rect.fromPoints(topLeft, bottomRight);
+    // A light tint inside, then a neon outline with a thin dark rim, so the
+    // boundary shows on light and dark pixels and never relies on colour alone.
+    canvas.drawRect(
+      drawnRect,
+      Paint()
+        ..style = PaintingStyle.fill
+        ..color = AppColors.neonMagenta.withValues(alpha: 0.08),
+    );
+    drawNeonOutlineRect(canvas, drawnRect);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RectangleSelectionPainter oldDelegate) =>
+      oldDelegate.selection != selection ||
+      oldDelegate.geometry != geometry ||
+      oldDelegate.transform != transform;
+}
+
+class _TwoClickCornerMarkerPainter extends CustomPainter {
+  const _TwoClickCornerMarkerPainter({
+    required this.corner,
+    required this.geometry,
+    required this.transform,
     required this.color,
   });
 
-  final List<Point> points;
+  final rect.SelectionPoint corner;
   final FittedImageGeometry geometry;
   final Matrix4 transform;
-  final double opacity;
   final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.isEmpty || opacity <= 0) {
-      return;
-    }
-    final viewportPoints = [
-      for (final point in points)
-        MatrixUtils.transformPoint(transform, geometry.mapPoint(point)),
-    ];
-    final path = _smoothPath(viewportPoints);
-    final glow = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 8
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = color.withValues(alpha: 0.16 * opacity)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..color = color.withValues(alpha: 0.92 * opacity);
+    final center = MatrixUtils.transformPoint(
+      transform,
+      geometry.mapPoint(Point(x: corner.x, y: corner.y)),
+    );
+    final fill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color;
     canvas
-      ..drawPath(path, glow)
-      ..drawPath(path, stroke);
+      ..drawCircle(
+        center,
+        rect.twoClickCornerMarkerRadius + 1,
+        Paint()..color = dualStrokeDark.withValues(alpha: 0.6),
+      )
+      ..drawCircle(center, rect.twoClickCornerMarkerRadius, fill);
   }
 
   @override
-  bool shouldRepaint(covariant _FreehandStrokePainter oldDelegate) =>
-      oldDelegate.points != points ||
+  bool shouldRepaint(covariant _TwoClickCornerMarkerPainter oldDelegate) =>
+      oldDelegate.corner != corner ||
       oldDelegate.geometry != geometry ||
       oldDelegate.transform != transform ||
-      oldDelegate.opacity != opacity ||
       oldDelegate.color != color;
+}
 
-  static Path _smoothPath(List<Offset> points) {
-    final path = Path()..moveTo(points.first.dx, points.first.dy);
-    if (points.length == 1) {
-      return path;
+/// A 2 px keyboard focus outline around the whole canvas, in a dark and a
+/// light line so it shows on any screenshot.
+class _CanvasFocusRing extends StatelessWidget {
+  const _CanvasFocusRing({required this.visible});
+
+  final bool visible;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!visible) {
+      return const SizedBox.shrink();
     }
-    for (var index = 1; index < points.length - 1; index++) {
-      final midpoint = Offset.lerp(points[index], points[index + 1], 0.5)!;
-      path.quadraticBezierTo(
-        points[index].dx,
-        points[index].dy,
-        midpoint.dx,
-        midpoint.dy,
-      );
-    }
-    path.lineTo(points.last.dx, points.last.dy);
-    return path;
+    return CustomPaint(
+      key: const Key('canvas-focus-ring'),
+      painter: const _FocusRingPainter(),
+    );
   }
+}
+
+class _FocusRingPainter extends CustomPainter {
+  const _FocusRingPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inset = AppA11y.focusRingWidth * 2;
+    drawDualStrokeRect(
+      canvas,
+      (Offset.zero & size).deflate(inset),
+      width: AppA11y.focusRingWidth,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FocusRingPainter oldDelegate) => false;
 }
 
 class _ZoomControls extends StatelessWidget {

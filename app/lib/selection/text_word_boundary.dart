@@ -62,3 +62,42 @@ _CharacterKind _kindOf(int codePoint) {
 }
 
 enum _CharacterKind { word, whitespace, punctuation }
+
+/// Code-point offset one word to the right of [offset] in [text]: skips
+/// spaces, then runs to the end of the word (or punctuation run). Returns
+/// null when only spaces remain.
+({int start, int end})? nextWordAfter(String text, int offset) {
+  final codePoints = text.runes.toList(growable: false);
+  var start = offset < 0 ? 0 : offset;
+  while (start < codePoints.length &&
+      _kindOf(codePoints[start]) == _CharacterKind.whitespace) {
+    start++;
+  }
+  if (start >= codePoints.length) {
+    return null;
+  }
+  final kind = _kindOf(codePoints[start]);
+  var end = start + 1;
+  while (end < codePoints.length && _kindOf(codePoints[end]) == kind) {
+    end++;
+  }
+  return (start: start, end: end);
+}
+
+/// The word to the left of [offset], mirror of [nextWordAfter].
+({int start, int end})? previousWordBefore(String text, int offset) {
+  final codePoints = text.runes.toList(growable: false);
+  var end = offset > codePoints.length ? codePoints.length : offset;
+  while (end > 0 && _kindOf(codePoints[end - 1]) == _CharacterKind.whitespace) {
+    end--;
+  }
+  if (end <= 0) {
+    return null;
+  }
+  final kind = _kindOf(codePoints[end - 1]);
+  var start = end - 1;
+  while (start > 0 && _kindOf(codePoints[start - 1]) == kind) {
+    start--;
+  }
+  return (start: start, end: end);
+}

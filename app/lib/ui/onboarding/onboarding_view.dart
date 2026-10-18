@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:yaru/yaru.dart';
 
 import 'package:kiriglyph/capture/instant_capture.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/theme/app_theme.dart';
+import 'package:kiriglyph/ui/settings/background_section.dart';
 
 class OnboardingView extends ConsumerStatefulWidget {
   const OnboardingView({super.key});
@@ -62,32 +65,30 @@ class _OnboardingViewState extends ConsumerState<OnboardingView> {
     final text = Theme.of(context).textTheme;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AppSpacing.xl),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
+          constraints: const BoxConstraints(maxWidth: 720),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.text_fields_rounded, size: 36, color: colors.primary),
-              const SizedBox(height: 16),
               Text(
                 'Set up Kiriglyph',
                 style: text.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppSpacing.sm),
               Text(
                 'Enable the shortcut flow to select and copy text anywhere on '
                 'your Ubuntu desktop.',
-                style: text.bodyMedium?.copyWith(
-                  color: colors.onSurface.withValues(alpha: 0.72),
+                style: text.bodyLarge?.copyWith(
+                  color: colors.onSurfaceVariant,
                   height: 1.45,
                 ),
               ),
               if (notice != null) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: AppSpacing.lg),
                 Semantics(
                   liveRegion: true,
                   child: Text(
@@ -100,14 +101,29 @@ class _OnboardingViewState extends ConsumerState<OnboardingView> {
                   ),
                 ),
               ],
-              const SizedBox(height: 20),
-              FilledButton.tonalIcon(
+              const SizedBox(height: AppSpacing.section),
+              Text(
+                'Screen access',
+                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'GNOME may ask once before shortcut captures can run silently.',
+                style: text.bodyMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              FilledButton.icon(
                 key: const Key('enable-instant-capture'),
                 onPressed: _requesting ? null : _requestPermission,
                 icon: _requesting
-                    ? const SizedBox.square(
-                        dimension: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                    ? SizedBox.square(
+                        dimension: AppSpacing.lg,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colors.onPrimary,
+                        ),
                       )
                     : const Icon(Icons.screenshot_monitor_outlined),
                 label: Text(
@@ -116,14 +132,16 @@ class _OnboardingViewState extends ConsumerState<OnboardingView> {
                       : 'Enable instant capture',
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpacing.md),
               _PermissionMessage(requesting: _requesting, status: _status),
-              const SizedBox(height: 28),
+              const SizedBox(height: AppSpacing.section),
               _ShortcutSetup(
                 command: command,
                 copied: _commandCopied,
                 onCopy: () => _copyCommand(command),
               ),
+              const SizedBox(height: AppSpacing.section),
+              const BackgroundSection(),
             ],
           ),
         ),
@@ -153,8 +171,12 @@ class _PermissionMessage extends StatelessWidget {
             'portal, then retry.',
       (false, InstantCaptureStatus.failed) =>
         'Could not enable instant capture. Retry from this window.',
-      _ => 'GNOME may ask once before shortcut captures can run silently.',
+      _ => null,
     };
+
+    if (message == null) {
+      return const SizedBox.shrink();
+    }
 
     final color = switch ((requesting, status)) {
       (false, InstantCaptureStatus.granted) => colors.primary,
@@ -165,7 +187,7 @@ class _PermissionMessage extends StatelessWidget {
             InstantCaptureStatus.failed,
       ) =>
         colors.error,
-      _ => colors.onSurface.withValues(alpha: 0.72),
+      _ => colors.onSurfaceVariant,
     };
 
     return Semantics(
@@ -194,87 +216,67 @@ class _ShortcutSetup extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final mono = text.bodyMedium?.copyWith(
+      fontFamily: appMonoFontFamily,
+      fontFamilyFallback: appMonoFontFallback,
+      fontSize: 13,
+    );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.outlineVariant),
-        borderRadius: BorderRadius.circular(12),
-        color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Shortcut setup',
-              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Settings → Keyboard → View and Customize Shortcuts → '
-              'Custom Shortcuts → Add Shortcut',
-            ),
-            const SizedBox(height: 12),
-            const Text('Name: Kiriglyph'),
-            const SizedBox(height: 8),
-            Text('Command', style: text.labelMedium),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 460),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: colors.outlineVariant),
-                      borderRadius: BorderRadius.circular(6),
-                      color: colors.surface,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 8,
-                      ),
-                      child: SelectableText(
-                        command,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
+    return YaruSection(
+      headline: const Text('Shortcut setup'),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Settings → Keyboard → View and Customize Shortcuts → '
+            'Custom Shortcuts → Add Shortcut',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text('Name: Kiriglyph', style: text.bodyMedium),
+          const SizedBox(height: AppSpacing.sm),
+          Text('Command', style: text.labelLarge),
+          const SizedBox(height: AppSpacing.xs),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: YaruBorderContainer(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
                   ),
+                  child: SelectableText(command, style: mono),
                 ),
-                OutlinedButton.icon(
-                  key: const Key('copy-selection-command'),
-                  onPressed: onCopy,
-                  icon: const Icon(Icons.copy_rounded, size: 16),
-                  label: const Text('Copy'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Choose a shortcut such as Super+Shift+T.',
-              style: text.bodySmall?.copyWith(
-                color: colors.onSurface.withValues(alpha: 0.72),
               ),
-            ),
-            if (copied) ...[
-              const SizedBox(height: 8),
-              Semantics(
-                liveRegion: true,
-                child: Text(
-                  'Command copied',
-                  style: text.bodySmall?.copyWith(color: colors.primary),
-                ),
+              OutlinedButton.icon(
+                key: const Key('copy-selection-command'),
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_outlined, size: 18),
+                label: const Text('Copy'),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Choose a shortcut such as Super+Shift+T.',
+            style: text.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+          ),
+          if (copied) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                'Command copied',
+                style: text.bodySmall?.copyWith(color: colors.primary),
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

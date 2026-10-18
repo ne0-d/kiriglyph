@@ -37,9 +37,9 @@ The mappings below are starting points, not hard assignments. Escalate or switch
 
 Use for repository exploration, straightforward Flutter or GTK UI, DTOs, serializers, mocks, fixture loaders, routine tests, documentation, CI configuration, and mechanical fixes while it remains accurate and complete.
 
-### Cursor Grok 4.6 High Fast
+### Cursor Grok 4.6 High Fast and Grok 4.7 High
 
-Use for one bounded documentation question or primary-source lookup. Limit research to the sources necessary to answer that question; do not create broad landscape reports unless the ticket explicitly requires one.
+Use for one bounded documentation question or primary-source lookup (limit research to the sources necessary; no broad landscape reports unless the ticket requires one). Also valid for bounded coding: single-feature implementation, UI, tests, scripts, and debugging where the scope and files are clear. The owner reports good results from Grok, so it is a first-class coding option at the light-to-mid tier; compare it against Composer 2.5 Fast and GPT-5.5 Medium on real tickets and record which one wins for which kind of task.
 
 ### GPT-5.5 Medium
 
@@ -69,6 +69,19 @@ Claude Opus 4.x or GPT-5.4) are not used when a newer peer is available.
 - Do not use Opus or Sol for UI layout, theming, tests, docs, or mechanical
   edits.
 - Do not run two agents on the same question unless a comparison is the point.
+- Heavy models (Claude Opus, GPT-5.6 Sol) are the exception, not the default.
+  They are slow, spend many tokens, and tend to over-engineer. Use them only
+  for genuinely complex work (cross-layer concurrency, Wayland and portal
+  lifecycles, security, accessibility architecture, hard-to-reverse
+  decisions) and state the reason before invoking one.
+- Everything else goes to the lightest model that fits: Composer 2.5 Fast or
+  Cursor Grok 4.6 High Fast for UI, theming, tests, docs, packaging scripts,
+  and lookups; GPT-5.5 Medium, GPT-5.6 Terra Medium, or Claude Sonnet 5.5 High
+  for substantial multi-file work, debugging, and reviews.
+- Pick the model by the task's nature, not its size: a large but mechanical
+  change (UI polish, theming, renames, scaffolding) still goes to a light model.
+- Research uses one bounded question per agent on a light or mid model. Do not
+  ask a heavy model for broad landscape reports.
 - Reuse a finished sub-agent with `resume` for follow-up fixes on its own
   work instead of briefing a new one.
 
@@ -84,21 +97,6 @@ Claude Opus 4.x or GPT-5.4) are not used when a newer peer is available.
 | Maximum-depth, high-risk engineering | GPT-5.6 Sol |
 | Main chat orchestration, review, small fixes | Claude Sonnet 5.5 High |
 
-Current tickets:
-
-| Ticket | Model |
-| --- | --- |
-| 09 Overlay keyboard and screen reader | Claude Sonnet 5.5 High |
-| 21 Remove manual image workflow (deletions, test rewrites) | Composer 2.5 Fast, escalate to GPT-5.5 Medium on mistakes |
-| 10 Text acceptance (measurement harness, privacy tests) | GPT-5.5 Medium |
-| 11 Segmentation feasibility | Cursor Grok 4.6 High Fast for sources, GPT-5.5 Medium for the benchmark |
-| 12 Subject mode in the overlay | GPT-5.5 Medium, Claude Opus 5.5 Medium for the worker/embedding lifecycle if it grows |
-| 13 Transparent PNG export, clipboard and save from the overlay | GPT-5.5 Medium |
-| 14 Combined acceptance | GPT-5.5 Medium |
-
-Finished: 15 (GPT-5.5 Medium), 16 and 17 and 18 (Claude Opus 5.5 Medium), 19
-(GPT-5.5 Medium), 20 (GPT-5.5 Medium).
-
 ## Sub-agent policy
 
 Sub-agents are encouraged when independent work can proceed concurrently or a specialist context improves quality.
@@ -109,7 +107,12 @@ Every invocation must:
 2. Define one concrete deliverable.
 3. Name allowed files or state that the task is read-only.
 4. Bound sources and output size for research.
-5. Define acceptance evidence and a stop condition.
+5. Define acceptance evidence and a stop condition. Code work is done when
+   `scripts/check.sh full` prints `CHECK PASSED`; name the files to use with
+   `scripts/check.sh quick` while working.
+6. Name the skills to use. Agents use only the skills their prompt names.
+7. Point to `docs/agents/dev-commands.md` for tool paths and gotchas instead of
+   restating them.
 
 Choose concurrency from the number of genuinely independent tasks and the cost of integrating their results. Keep each task bounded, avoid duplicate work unless comparison is intentional, and reserve parallel maximum-depth agents for cases where their independent conclusions justify the coordination cost.
 
@@ -164,3 +167,7 @@ these limits:
 - Features and bug fixes use red-green-refactor where practical.
 - Completion claims require fresh verification output.
 - Existing research is extended, not repeated.
+- The owner's private learning guide (`.local/project-learning-guide.md`, git-ignored)
+  is refreshed at the end of every issue or phase: architecture and user-flow
+  maps, shipped versus upcoming status, and a new interview story when a notable
+  bug was solved. Schedule that update as part of finishing the work.

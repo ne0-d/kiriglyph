@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from worker.efficient_sam_adapter import (
+    _is_background_like,
     EfficientSamTiAdapter,
     _LassoCandidate,
     _refine_point_prompt,
@@ -316,3 +317,19 @@ def test_real_google_images_apple_click_matches_lasso(tmp_path: Path, monkeypatc
     assert grid.mask_stats.bounds.height < 120
     assert click.timings.prompt_ms is not None
     assert click.timings.prompt_ms < 450
+
+
+def test_click_mask_that_is_the_backdrop_is_not_an_object():
+    wall = np.zeros((100, 200), dtype=bool)
+    wall[:, :100] = True  # half the screen
+    assert _is_background_like(wall)
+
+    wraparound = np.zeros((100, 200), dtype=bool)
+    wraparound[:20, :] = True
+    wraparound[:, :20] = True
+    wraparound[:, -20:] = True  # a frame touching three edges
+    assert _is_background_like(wraparound)
+
+    apple = np.zeros((100, 200), dtype=bool)
+    apple[30:70, 80:120] = True
+    assert not _is_background_like(apple)

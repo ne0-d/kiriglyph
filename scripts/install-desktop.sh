@@ -17,6 +17,7 @@ BINARY_NAME="kiriglyph"
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 BUNDLE_DIR="$DATA_HOME/kiriglyph/bundle"
+ICON_DIR="$DATA_HOME/icons/hicolor/symbolic/apps"
 # The app shows this path as its shortcut command; keep both in sync with
 # app/lib/app/app_identity.dart.
 LAUNCHER="$HOME/.local/bin/kiriglyph"
@@ -84,8 +85,11 @@ stop_running_instance
 
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR" "$(dirname "$LAUNCHER")" "$(dirname "$DESKTOP_FILE")" \
-  "$(dirname "$AUTOSTART_FILE")"
+  "$(dirname "$AUTOSTART_FILE")" "$ICON_DIR"
 cp -a "${bundles[0]}/." "$BUNDLE_DIR/"
+cp "$ROOT/app/assets/icons/kiriglyph-symbolic.svg" "$ICON_DIR/kiriglyph-symbolic.svg"
+cp "$ROOT/app/assets/icons/kiriglyph-attention-symbolic.svg" "$ICON_DIR/kiriglyph-attention-symbolic.svg"
+cp "$ROOT/app/assets/icons/kiriglyph-busy-symbolic.svg" "$ICON_DIR/kiriglyph-busy-symbolic.svg"
 
 cat >"$LAUNCHER" <<EOF
 #!/bin/sh
@@ -103,7 +107,7 @@ Type=Application
 Name=Kiriglyph
 Comment=Select and copy text from anything on screen
 Exec=$LAUNCHER
-Icon=edit-select-all-symbolic
+Icon=kiriglyph-symbolic
 Terminal=false
 Categories=Utility;
 Keywords=OCR;text;screenshot;copy;
@@ -117,7 +121,7 @@ Type=Application
 Name=Kiriglyph
 Comment=Keeps Kiriglyph ready for its selection shortcut
 Exec=$LAUNCHER --background
-Icon=edit-select-all-symbolic
+Icon=kiriglyph-symbolic
 Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
@@ -125,6 +129,9 @@ EOF
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$(dirname "$DESKTOP_FILE")" >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q "$DATA_HOME/icons/hicolor" >/dev/null 2>&1 || true
 fi
 
 setsid -f "$LAUNCHER" --background </dev/null >/dev/null 2>&1

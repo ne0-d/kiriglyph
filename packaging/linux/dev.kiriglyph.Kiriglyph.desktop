@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Kiriglyph
+Comment=Select and copy text from anything on screen
+Exec=/usr/bin/kiriglyph
+Icon=kiriglyph-symbolic
+Terminal=false
+Categories=Utility;
+Keywords=OCR;text;screenshot;copy;
+StartupNotify=true
+StartupWMClass=dev.kiriglyph.Kiriglyph

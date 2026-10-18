@@ -6,11 +6,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from worker.barcode_decoder import BarcodeDecodeError, decode_barcodes
 from worker.image_size import ImageSizeError, read_image_size
 from worker.rapidocr_engine import OcrEngine, OcrEngineError
 
 PROTOCOL_VERSION = 1
-SUPPORTED_METHOD = "recognize"
+RECOGNIZE_METHOD = "recognize"
+DECODE_CODES_METHOD = "decode_codes"
+SUPPORTED_METHODS = frozenset({RECOGNIZE_METHOD, DECODE_CODES_METHOD})
 REQUEST_KEYS = frozenset({"version", "id", "method", "params"})
 PARAM_KEYS = frozenset({"image_path"})
 MAX_NDJSON_LINE_BYTES = 1_048_576
@@ -30,6 +33,7 @@ class ErrorCode(StrEnum):
 class RecognizeRequest:
     id: str
     image_path: Path
+    method: str = RECOGNIZE_METHOD
 
 
 def _message_id(payload: dict[str, Any]) -> str | None:
@@ -83,7 +87,7 @@ def parse_request_line(
         )
 
     method = payload.get("method")
-    if method != SUPPORTED_METHOD:
+    if method not in SUPPORTED_METHODS:
         return None, error_response(
             message_id,
             ErrorCode.UNSUPPORTED_METHOD,
@@ -114,7 +118,14 @@ def parse_request_line(
             "image_path must be a non-empty string",
         )
 
-    return RecognizeRequest(id=message_id, image_path=Path(image_path_raw)), None
+    return (
+        RecognizeRequest(
+            id=message_id,
+            image_path=Path(image_path_raw),
+            method=method,
+        ),
+        None,
+    )
 
 
 def handle_recognize(
@@ -146,6 +157,18 @@ def handle_recognize(
             "no text was recognized in the image",
         )
     return success_response(request.id, result)
+
+
+def handle_decode_codes(request: RecognizeRequest) -> dict[str, Any]:
+    try:
+        codes = decode_barcodes(request.image_path)
+    except BarcodeDecodeError:
+        return error_response(
+            request.id,
+            ErrorCode.IMAGE_UNREADABLE,
+            "image file is missing or not readable",
+        )
+    return success_response(request.id, {"codes": codes})
 
 
 def success_response(message_id: str, result: dict[str, Any]) -> dict[str, Any]:

@@ -77,4 +77,16 @@ void main() {
       r"'/home/o'\''neil x/.local/bin/kiriglyph' --select",
     );
   });
+
+  test('a packaged install points the shortcut at /usr/bin/kiriglyph', () {
+    expect(
+      selectionCommand(
+        environment: {
+          'HOME': '/home/neo',
+          'KIRIGLYPH_LAUNCHER': '/usr/bin/kiriglyph',
+        },
+      ),
+      '/usr/bin/kiriglyph --select',
+    );
+  });
 }

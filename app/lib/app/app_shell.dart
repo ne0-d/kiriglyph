@@ -50,6 +50,10 @@ abstract interface class AppShell {
   /// with the display it landed on; throws [OverlayPlacementException].
   Future<DisplayPlacement> showOverlay();
 
+  /// Reveals the already-mapped transparent overlay after Flutter has painted
+  /// the frozen frame and native GTK has presented a paint cycle.
+  Future<void> revealOverlay();
+
   /// Hides the overlay and restores the normal window for next time.
   Future<void> hideOverlay();
 
@@ -129,6 +133,19 @@ class PlatformAppShell implements AppShell {
       return DisplayPlacement.fromChannel(reply);
     } on FormatException {
       throw const OverlayPlacementException('malformed');
+    }
+  }
+
+  @override
+  Future<void> revealOverlay() async {
+    await SchedulerBinding.instance.endOfFrame.timeout(
+      _frameWait,
+      onTimeout: () {},
+    );
+    try {
+      await _channel.invokeMethod<void>('revealOverlay');
+    } on MissingPluginException {
+      // Not running under the Kiriglyph runner.
     }
   }
 

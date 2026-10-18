@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
+import 'package:kiriglyph/protocol/worker_protocol.dart';
 import 'package:kiriglyph/selection/region_selection_provider.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
 
@@ -23,6 +24,13 @@ class _SequenceWorker implements OcrWorker {
   @override
   Future<OcrResult> recognize(String imagePath) async =>
       results[_next++ % results.length];
+
+  @override
+  Future<List<DecodedCode>> decodeCodes(String imagePath) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> cancelInFlight() async {}
 
   @override
   Future<void> restart() async {}

@@ -5,8 +5,11 @@ import sys
 from worker.protocol import (
     MAX_NDJSON_LINE_BYTES,
     ErrorCode,
+    DECODE_CODES_METHOD,
+    RECOGNIZE_METHOD,
     encode_response,
     error_response,
+    handle_decode_codes,
     handle_recognize,
     parse_request_line,
 )
@@ -47,7 +50,15 @@ def process_request_line(raw_line: bytes, engine: OcrEngine) -> dict:
 
     assert request is not None
     try:
-        return handle_recognize(request, engine)
+        if request.method == RECOGNIZE_METHOD:
+            return handle_recognize(request, engine)
+        if request.method == DECODE_CODES_METHOD:
+            return handle_decode_codes(request)
+        return error_response(
+            request.id,
+            ErrorCode.UNSUPPORTED_METHOD,
+            "unsupported method",
+        )
     except Exception:  # noqa: BLE001 - final process boundary maps unknown failures.
         return error_response(request.id, ErrorCode.INTERNAL_ERROR, "request failed")
 

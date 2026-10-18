@@ -37,6 +37,8 @@ worker/benchmarks/segmentation/fixtures/real/*.jpg
 worker/benchmarks/segmentation/fixtures/real/*.png
 scripts/acceptance/output/
 scripts/acceptance/corpus/generated/
+dist/
+.deb-staging*/
 .env
 .env.*
 !.env.example
