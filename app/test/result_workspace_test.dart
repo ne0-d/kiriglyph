@@ -359,7 +359,7 @@ void main() {
 
       expect(
         tester
-            .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy')))
+            .widget<IconButton>(find.byKey(const Key('overlay-copy')))
             .onPressed,
         isNotNull,
       );
@@ -369,7 +369,7 @@ void main() {
 
       expect(
         tester
-            .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy')))
+            .widget<IconButton>(find.byKey(const Key('overlay-copy')))
             .onPressed,
         isNull,
       );
@@ -402,7 +402,7 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
-      await tester.tap(find.text('Free draw'));
+      await tester.tap(find.byTooltip('Free draw'));
       await tester.pump();
 
       await _drawStroke(tester, [
@@ -426,7 +426,7 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
-      await tester.tap(find.text('Free draw'));
+      await tester.tap(find.byTooltip('Free draw'));
       await tester.pump();
       final points = [
         _imagePoint(tester, 0.175, 0.05),
@@ -473,7 +473,7 @@ void main() {
         testRoot: root,
         worker: FakeWorker([characterSampleResult()]),
       );
-      await tester.tap(find.text('Free draw'));
+      await tester.tap(find.byTooltip('Free draw'));
       await tester.pump();
 
       await _drawStroke(tester, [
@@ -582,8 +582,7 @@ void main() {
       await _openSample(tester, root);
 
       bool enabled(String key) =>
-          tester.widget<ButtonStyleButton>(find.byKey(Key(key))).onPressed !=
-          null;
+          tester.widget<IconButton>(find.byKey(Key(key))).onPressed != null;
 
       expect(enabled('overlay-copy'), isFalse);
       expect(enabled('overlay-copy-all'), isTrue);

@@ -443,7 +443,7 @@ void main() {
       'R in free draw switches to the rectangle tool; T cycles tools',
       (tester) async {
         await open(tester);
-        await tester.tap(find.text('Free draw'));
+        await tester.tap(find.byTooltip('Free draw'));
         await tester.pump();
 
         await press(tester, LogicalKeyboardKey.keyR);
@@ -616,26 +616,6 @@ void main() {
       expect(announcer.last, 'Toolbar moved left');
     });
 
-    testWidgets('the grip moves the toolbar with plain arrows once focused', (
-      tester,
-    ) async {
-      // Test fonts are wide; leave room to move the toolbar.
-      await open(tester, size: const Size(2400, 800));
-      await press(tester, LogicalKeyboardKey.f6);
-      await chord(tester, [altKey], LogicalKeyboardKey.arrowRight);
-      await chord(tester, [altKey], LogicalKeyboardKey.arrowRight);
-      final before = tester.getTopLeft(find.byKey(_toolbarKey));
-
-      await tester.tap(find.byKey(const Key('overlay-toolbar-move-grip')));
-      await tester.pump();
-      await press(tester, LogicalKeyboardKey.arrowLeft);
-
-      expect(
-        tester.getTopLeft(find.byKey(_toolbarKey)).dx,
-        lessThan(before.dx),
-      );
-    });
-
     testWidgets('the Move toolbar menu is the pointer-free alternative', (
       tester,
     ) async {
@@ -670,7 +650,6 @@ void main() {
         'overlay-copy-all',
         'overlay-close',
         'overlay-save-full-screenshot',
-        'overlay-toolbar-move-grip-target',
         'overlay-toolbar-move-menu',
       ]) {
         final size = tester.getSize(find.byKey(Key(key)));

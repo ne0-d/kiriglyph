@@ -84,24 +84,26 @@ abstract final class ActionIds {
   static const saveSubject = 'save-subject';
 }
 
-enum FeedbackButtonKind { tonal, outlined, text, icon }
+/// Size of every overlay icon button: a compact, modern square.
+const double overlayIconButtonSize = 36;
+const double overlayIconButtonRadius = 10;
 
-/// An action button that confirms its own result: a colour fill sweeps across
-/// it, a check draws in, and the label becomes "Copied" or "Saved" before
-/// easing back. Every action button in the overlay uses this one behaviour.
+/// An icon-only action button that confirms its own result: a colour fill
+/// sweeps across it, a check draws in, and the tooltip becomes "Copied" or
+/// "Saved" before everything eases back. Every action button in the overlay
+/// uses this one behaviour, so a click and a shortcut look the same.
 class FeedbackActionButton extends StatefulWidget {
   const FeedbackActionButton({
     super.key,
     this.buttonKey,
     required this.actionId,
-    required this.kind,
     required this.icon,
+    required this.tooltip,
     required this.onPressed,
-    this.label,
-    this.doneLabel,
-    this.failureLabel = 'Failed',
-    this.iconSize = 16,
-    this.tooltip,
+    this.doneTooltip,
+    this.failureTooltip = 'Failed',
+    this.iconSize = 18,
+    this.tonal = false,
     this.focusNode,
   });
 
@@ -111,18 +113,19 @@ class FeedbackActionButton extends StatefulWidget {
 
   /// Shared with [ActionFeedbackController.succeed] and `.fail`.
   final String actionId;
-  final FeedbackButtonKind kind;
   final IconData icon;
-  final VoidCallback? onPressed;
 
-  /// Null for an icon-only button.
-  final String? label;
-  final String? doneLabel;
-  final String failureLabel;
+  /// Shown on hover: the action's name.
+  final String tooltip;
+
+  /// Shown on hover while the success state holds ("Copied", "Saved").
+  final String? doneTooltip;
+  final String failureTooltip;
+  final VoidCallback? onPressed;
   final double iconSize;
 
-  /// Tooltip of an icon-only button.
-  final String? tooltip;
+  /// A filled button for the main action of a group.
+  final bool tonal;
   final FocusNode? focusNode;
 
   @override
@@ -171,10 +174,10 @@ class _FeedbackActionButtonState extends State<FeedbackActionButton>
     super.dispose();
   }
 
-  String? get _shownLabel => switch (_phase) {
-    ActionPhase.success => widget.doneLabel ?? widget.label,
-    ActionPhase.failure => widget.failureLabel,
-    ActionPhase.idle => widget.label,
+  String get _tooltip => switch (_phase) {
+    ActionPhase.success => widget.doneTooltip ?? widget.tooltip,
+    ActionPhase.failure => widget.failureTooltip,
+    ActionPhase.idle => widget.tooltip,
   };
 
   @override
@@ -183,11 +186,26 @@ class _FeedbackActionButtonState extends State<FeedbackActionButton>
     final failed = _lastActive == ActionPhase.failure;
     final fillColor = failed ? colors.error : AppColors.success;
     final onFill = failed ? colors.onError : Colors.white;
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(overlayIconButtonRadius),
+    );
     return AnimatedBuilder(
       animation: _fill,
       builder: (context, _) {
         final t = Curves.easeOutCubic.transform(_fill.value);
         final style = ButtonStyle(
+          visualDensity: VisualDensity.standard,
+          maximumSize: const WidgetStatePropertyAll(
+            Size.square(overlayIconButtonSize),
+          ),
+          minimumSize: const WidgetStatePropertyAll(
+            Size.square(overlayIconButtonSize),
+          ),
+          fixedSize: const WidgetStatePropertyAll(
+            Size.square(overlayIconButtonSize),
+          ),
+          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          shape: WidgetStatePropertyAll(shape),
           backgroundBuilder: (context, states, child) => Stack(
             fit: StackFit.passthrough,
             children: [
@@ -195,9 +213,7 @@ class _FeedbackActionButtonState extends State<FeedbackActionButton>
                 Positioned.fill(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(
-                      widget.kind == FeedbackButtonKind.icon
-                          ? 999
-                          : AppRadii.control,
+                      overlayIconButtonRadius,
                     ),
                     child: FractionallySizedBox(
                       alignment: Alignment.centerLeft,
@@ -211,8 +227,7 @@ class _FeedbackActionButtonState extends State<FeedbackActionButton>
             ],
           ),
         );
-        final icon = _GlyphSwitcher(
-          key: const Key('feedback-glyph'),
+        final glyph = _GlyphSwitcher(
           phase: _phase,
           idle: widget.icon,
           size: widget.iconSize,
@@ -220,116 +235,24 @@ class _FeedbackActionButtonState extends State<FeedbackActionButton>
           onFill: onFill,
           reduceMotion: _reduceMotion,
         );
-        final label = widget.label == null
-            ? null
-            : _LabelSwitcher(
-                phase: _phase,
-                text: _shownLabel!,
-                widest: _longest(widget.label!, widget.doneLabel ?? ''),
-                t: t,
-                onFill: onFill,
-                reduceMotion: _reduceMotion,
+        return widget.tonal
+            ? IconButton.filledTonal(
+                key: widget.buttonKey,
+                focusNode: widget.focusNode,
+                tooltip: _tooltip,
+                onPressed: widget.onPressed,
+                style: style,
+                icon: glyph,
+              )
+            : IconButton(
+                key: widget.buttonKey,
+                focusNode: widget.focusNode,
+                tooltip: _tooltip,
+                onPressed: widget.onPressed,
+                style: style,
+                icon: glyph,
               );
-        return switch (widget.kind) {
-          FeedbackButtonKind.tonal => FilledButton.tonalIcon(
-            key: widget.buttonKey,
-            focusNode: widget.focusNode,
-            onPressed: widget.onPressed,
-            style: style,
-            clipBehavior: Clip.antiAlias,
-            icon: icon,
-            label: label!,
-          ),
-          FeedbackButtonKind.outlined => OutlinedButton.icon(
-            key: widget.buttonKey,
-            focusNode: widget.focusNode,
-            onPressed: widget.onPressed,
-            style: style,
-            clipBehavior: Clip.antiAlias,
-            icon: icon,
-            label: label!,
-          ),
-          FeedbackButtonKind.text => TextButton(
-            key: widget.buttonKey,
-            focusNode: widget.focusNode,
-            onPressed: widget.onPressed,
-            style: style,
-            clipBehavior: Clip.antiAlias,
-            child: label!,
-          ),
-          FeedbackButtonKind.icon => IconButton(
-            key: widget.buttonKey,
-            tooltip: widget.tooltip,
-            focusNode: widget.focusNode,
-            onPressed: widget.onPressed,
-            style: style,
-            icon: icon,
-          ),
-        };
       },
-    );
-  }
-
-  static String _longest(String a, String b) => b.length > a.length ? b : a;
-}
-
-/// The label cross-fades with a small upward slide; an invisible copy of the
-/// longer text keeps the button width fixed so nothing around it moves.
-class _LabelSwitcher extends StatelessWidget {
-  const _LabelSwitcher({
-    required this.phase,
-    required this.text,
-    required this.widest,
-    required this.t,
-    required this.onFill,
-    required this.reduceMotion,
-  });
-
-  final ActionPhase phase;
-  final String text;
-  final String widest;
-  final double t;
-  final Color onFill;
-  final bool reduceMotion;
-
-  @override
-  Widget build(BuildContext context) {
-    final style = DefaultTextStyle.of(context).style;
-    final color = Color.lerp(style.color, onFill, t);
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Not a Text widget, so it is never found as a second label.
-        ExcludeSemantics(
-          child: Opacity(
-            opacity: 0,
-            child: RichText(
-              text: TextSpan(text: widest, style: style),
-              textScaler: MediaQuery.textScalerOf(context),
-            ),
-          ),
-        ),
-        AnimatedSwitcher(
-          duration: reduceMotion ? Duration.zero : _swap,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) => FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.35),
-                end: Offset.zero,
-              ).animate(animation),
-              child: child,
-            ),
-          ),
-          child: Text(
-            text,
-            key: ValueKey(phase),
-            style: style.copyWith(color: color),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -337,7 +260,6 @@ class _LabelSwitcher extends StatelessWidget {
 /// The icon becomes a drawing check (or a cross) and back.
 class _GlyphSwitcher extends StatelessWidget {
   const _GlyphSwitcher({
-    super.key,
     required this.phase,
     required this.idle,
     required this.size,

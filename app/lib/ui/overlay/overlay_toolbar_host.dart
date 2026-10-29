@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:kiriglyph/a11y/overlay_announcer.dart';
 import 'package:kiriglyph/overlay/toolbar_placement.dart';
-import 'package:kiriglyph/theme/app_theme.dart';
 import 'package:kiriglyph/ui/motion/motion_policy.dart';
+import 'package:kiriglyph/ui/overlay/action_feedback.dart';
 import 'package:kiriglyph/ui/overlay/overlay_toolbar.dart';
 import 'package:kiriglyph/ui/overlay/toolbar_move_controls.dart';
 import 'package:kiriglyph/ui/overlay/toolbar_session.dart';
@@ -46,7 +46,7 @@ class _OverlayToolbarHostState extends ConsumerState<OverlayToolbarHost> {
   Size? _childSize;
 
   ToolbarSessionPlacement _session(String key) =>
-      ref.watch(toolbarSessionProvider)[key] ?? const ToolbarSessionPlacement();
+      ref.watch(toolbarSessionProvider)[key] ?? defaultToolbarSessionPlacement;
 
   void _writeSession(ToolbarSessionPlacement placement) {
     ref
@@ -139,7 +139,6 @@ class _OverlayToolbarHostState extends ConsumerState<OverlayToolbarHost> {
           }
         },
         child: ToolbarMoveControls(
-          grip: _ToolbarGrip(onNudge: _nudge),
           menu: _ToolbarMoveMenu(
             glowEnabled: glowEnabled,
             onGlowToggle: () => ref.read(glowEnabledProvider.notifier).toggle(),
@@ -345,78 +344,6 @@ class NudgeOverlayToolbarIntent extends Intent {
   final Offset delta;
 }
 
-/// The keyboard twin of dragging: click it, then use the arrow keys.
-class _ToolbarGrip extends StatelessWidget {
-  const _ToolbarGrip({required this.onNudge});
-
-  final ValueChanged<Offset> onNudge;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Focus(
-      skipTraversal: true,
-      onKeyEvent: (node, event) {
-        if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
-          return KeyEventResult.ignored;
-        }
-        final step = HardwareKeyboard.instance.isShiftPressed
-            ? _keyboardStepLarge
-            : _keyboardStep;
-        final delta = switch (event.logicalKey) {
-          LogicalKeyboardKey.arrowUp => Offset(0, -step),
-          LogicalKeyboardKey.arrowDown => Offset(0, step),
-          LogicalKeyboardKey.arrowLeft => Offset(-step, 0),
-          LogicalKeyboardKey.arrowRight => Offset(step, 0),
-          _ => null,
-        };
-        if (delta == null) {
-          return KeyEventResult.ignored;
-        }
-        onNudge(delta);
-        return KeyEventResult.handled;
-      },
-      child: Builder(
-        builder: (context) {
-          final focused = Focus.of(context).hasFocus;
-          return Semantics(
-            label: 'Move toolbar',
-            hint: 'Drag the toolbar, or use the arrow keys',
-            button: true,
-            focusable: true,
-            focused: focused,
-            child: Listener(
-              onPointerDown: (_) => Focus.of(context).requestFocus(),
-              child: DecoratedBox(
-                key: const Key('overlay-toolbar-move-grip'),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadii.control),
-                  border: focused
-                      ? Border.all(
-                          color: colors.primary,
-                          width: AppA11y.focusRingWidth,
-                        )
-                      : null,
-                ),
-                child: SizedBox(
-                  key: const Key('overlay-toolbar-move-grip-target'),
-                  width: AppA11y.minTapTarget,
-                  height: AppA11y.minTapTarget,
-                  child: Icon(
-                    Icons.drag_indicator,
-                    size: 18,
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
 class _ToolbarMoveMenu extends StatelessWidget {
   const _ToolbarMoveMenu({
     required this.onMoveTop,
@@ -437,7 +364,17 @@ class _ToolbarMoveMenu extends StatelessWidget {
     return PopupMenuButton<String>(
       key: const Key('overlay-toolbar-move-menu'),
       tooltip: 'Move toolbar',
-      icon: const Icon(Icons.open_with, size: 18),
+      icon: const Icon(Icons.more_horiz_rounded, size: 18),
+      style: IconButton.styleFrom(
+        visualDensity: VisualDensity.standard,
+        maximumSize: const Size.square(overlayIconButtonSize),
+        fixedSize: const Size.square(overlayIconButtonSize),
+        minimumSize: const Size.square(overlayIconButtonSize),
+        padding: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(overlayIconButtonRadius),
+        ),
+      ),
       onSelected: (value) => switch (value) {
         'top' => onMoveTop(),
         'bottom' => onMoveBottom(),

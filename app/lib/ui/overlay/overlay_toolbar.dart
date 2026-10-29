@@ -22,10 +22,109 @@ const removeSubjectTooltip = 'Remove selection (Backspace or Delete)';
 const searchWebTooltip =
     'Search the web\nSelected text leaves this computer only when clicked.';
 
+const _chromeRadius = 16.0;
+
+/// The one floating surface every overlay toolbar and chip shares: a soft
+/// rounded panel with a hairline border and a deep, quiet shadow.
+class OverlayChrome extends StatelessWidget {
+  const OverlayChrome({super.key, required this.child, this.surfaceKey});
+
+  /// Key of the [Material] itself, which tests and finders look up.
+  final Key? surfaceKey;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final highContrast = MediaQuery.highContrastOf(context);
+    return Material(
+      key: surfaceKey,
+      color: highContrast
+          ? colors.surfaceContainerLow
+          : colors.surfaceContainerLow.withValues(alpha: 0.95),
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.4),
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_chromeRadius),
+        side: BorderSide(
+          color: highContrast
+              ? colors.onSurface
+              : colors.outlineVariant.withValues(alpha: 0.7),
+          width: highContrast ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(padding: const EdgeInsets.all(6), child: child),
+    );
+  }
+}
+
+/// A thin vertical rule between groups of controls.
+class _GroupDivider extends StatelessWidget {
+  const _GroupDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 1,
+    height: 20,
+    margin: const EdgeInsets.symmetric(horizontal: 2),
+    color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.8),
+  );
+}
+
+/// An icon button without a confirm cycle (it starts something rather than
+/// finishing it), sized and shaped like [FeedbackActionButton].
+class OverlayIconButton extends StatelessWidget {
+  const OverlayIconButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.focusNode,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final FocusNode? focusNode;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    focusNode: focusNode,
+    tooltip: tooltip,
+    onPressed: onPressed,
+    iconSize: 18,
+    style: IconButton.styleFrom(
+      visualDensity: VisualDensity.standard,
+      maximumSize: const Size.square(overlayIconButtonSize),
+      fixedSize: const Size.square(overlayIconButtonSize),
+      minimumSize: const Size.square(overlayIconButtonSize),
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(overlayIconButtonRadius),
+      ),
+    ),
+    icon: Icon(icon),
+  );
+}
+
+TextStyle? _statusStyle(BuildContext context) {
+  final colors = Theme.of(context).colorScheme;
+  final highContrast = MediaQuery.highContrastOf(context);
+  return Theme.of(context).textTheme.bodySmall?.copyWith(
+    color: highContrast
+        ? colors.onSurface
+        : colors.onSurface.withValues(alpha: 0.8),
+    fontWeight: FontWeight.w600,
+  );
+}
+
 /// The small floating toolbar over the frozen display.
 ///
-/// Tab visits Copy, Copy all, then Close after the canvas and any selection
-/// chips. Subject actions live in [SubjectActionChip].
+/// Every action is an icon; hover shows its name. Tab visits Copy, Copy all,
+/// then Close after the canvas and any selection chips. Subject actions live
+/// in [SubjectActionChip].
 class OverlayToolbar extends StatelessWidget {
   const OverlayToolbar({
     super.key,
@@ -66,160 +165,143 @@ class OverlayToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final highContrast = MediaQuery.highContrastOf(context);
     final scale = MediaQuery.textScalerOf(context).scale(1);
     final move = ToolbarMoveControls.maybeOf(context);
-    return Material(
-      key: const Key('overlay-toolbar'),
-      color: colors.surfaceContainerLow,
-      elevation: 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.18),
-      surfaceTintColor: colors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.surface),
-        side: BorderSide(
-          color: highContrast ? colors.onSurface : colors.outlineVariant,
-          width: highContrast ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.sm,
-        ),
-        // Wraps instead of overflowing when text is scaled up.
-        child: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          children: [
-            if (move != null) move.grip,
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: 120,
-                maxWidth: 320 * math.max(1, scale),
+    return OverlayChrome(
+      surfaceKey: const Key('overlay-toolbar'),
+      // Wraps instead of overflowing when text is scaled up.
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.xs,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              minWidth: 96,
+              maxWidth: 280 * math.max(1, scale),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Semantics(
+                liveRegion: statusIsLive,
+                child: Text(
+                  status,
+                  key: const Key('overlay-status'),
+                  style: _statusStyle(context),
+                ),
               ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: Semantics(
-                  liveRegion: statusIsLive,
-                  child: Text(
-                    status,
-                    key: const Key('overlay-status'),
-                    style: text.bodySmall?.copyWith(
-                      color: highContrast
-                          ? colors.onSurface
-                          : colors.onSurface.withValues(alpha: 0.8),
-                      fontWeight: FontWeight.w600,
+            ),
+          ),
+          const _GroupDivider(),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(4),
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              descendantsAreFocusable: false,
+              child: SegmentedButton<SelectionTool>(
+                key: const Key('overlay-selection-tool-switch'),
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(40, overlayIconButtonSize),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  side: BorderSide.none,
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      overlayIconButtonRadius,
                     ),
                   ),
                 ),
+                segments: const [
+                  ButtonSegment(
+                    value: SelectionTool.rectangle,
+                    tooltip: 'Rectangle',
+                    icon: Icon(Icons.crop_square_rounded, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: SelectionTool.twoClicks,
+                    tooltip: 'Two clicks',
+                    icon: Icon(Icons.ads_click_rounded, size: 18),
+                  ),
+                  ButtonSegment(
+                    value: SelectionTool.freeDraw,
+                    tooltip: 'Free draw',
+                    icon: Icon(Icons.gesture_rounded, size: 18),
+                  ),
+                ],
+                selected: {tool},
+                onSelectionChanged: (selected) =>
+                    onToolChanged(selected.single),
               ),
             ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(4),
-              child: Focus(
-                canRequestFocus: false,
-                skipTraversal: true,
-                descendantsAreFocusable: false,
-                child: SegmentedButton<SelectionTool>(
-                  key: const Key('overlay-selection-tool-switch'),
-                  segments: const [
-                    ButtonSegment(
-                      value: SelectionTool.rectangle,
-                      label: Text('Rectangle'),
-                      icon: Icon(Icons.crop_square_rounded, size: 16),
-                    ),
-                    ButtonSegment(
-                      value: SelectionTool.twoClicks,
-                      label: Text('Two clicks'),
-                      tooltip: 'Click two opposite corners',
-                      icon: Icon(Icons.touch_app_rounded, size: 16),
-                    ),
-                    ButtonSegment(
-                      value: SelectionTool.freeDraw,
-                      label: Text('Free draw'),
-                      icon: Icon(Icons.gesture_rounded, size: 16),
-                    ),
-                  ],
-                  selected: {tool},
-                  onSelectionChanged: (selected) =>
-                      onToolChanged(selected.single),
-                ),
+          ),
+          const _GroupDivider(),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(5),
+            child: FeedbackActionButton(
+              buttonKey: const Key('overlay-copy'),
+              actionId: ActionIds.copyText,
+              tonal: true,
+              focusNode: copyFocusNode,
+              onPressed: onCopy,
+              icon: Icons.content_copy_rounded,
+              tooltip: copyTooltipMessage ?? copyTooltip,
+              doneTooltip: 'Copied',
+            ),
+          ),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(6),
+            child: FeedbackActionButton(
+              buttonKey: const Key('overlay-copy-all'),
+              actionId: ActionIds.copyAll,
+              focusNode: copyAllFocusNode,
+              onPressed: onCopyAll,
+              icon: Icons.copy_all_rounded,
+              tooltip: copyAllTooltipMessage ?? copyAllTooltip,
+              doneTooltip: 'Copied',
+            ),
+          ),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(99),
+            child: Focus(
+              canRequestFocus: false,
+              skipTraversal: true,
+              descendantsAreFocusable: false,
+              child: FeedbackActionButton(
+                buttonKey: const Key('overlay-save-full-screenshot'),
+                actionId: ActionIds.saveFullScreenshot,
+                tooltip: 'Save full screenshot (Ctrl+Shift+F)',
+                doneTooltip: 'Saved',
+                onPressed: onSaveFullScreenshot,
+                icon: Icons.wallpaper_rounded,
               ),
             ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(5),
-              child: Tooltip(
-                message: copyTooltipMessage ?? copyTooltip,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('overlay-copy'),
-                  actionId: ActionIds.copyText,
-                  kind: FeedbackButtonKind.tonal,
-                  focusNode: copyFocusNode,
-                  onPressed: onCopy,
-                  icon: Icons.content_copy_rounded,
-                  label: 'Copy',
-                  doneLabel: 'Copied',
-                ),
-              ),
-            ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(6),
-              child: Tooltip(
-                message: copyAllTooltipMessage ?? copyAllTooltip,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('overlay-copy-all'),
-                  actionId: ActionIds.copyAll,
-                  kind: FeedbackButtonKind.outlined,
-                  focusNode: copyAllFocusNode,
-                  onPressed: onCopyAll,
-                  icon: Icons.copy_all_rounded,
-                  label: 'Copy all',
-                  doneLabel: 'Copied',
-                ),
-              ),
-            ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(99),
-              child: Focus(
-                canRequestFocus: false,
-                skipTraversal: true,
-                descendantsAreFocusable: false,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('overlay-save-full-screenshot'),
-                  actionId: ActionIds.saveFullScreenshot,
-                  kind: FeedbackButtonKind.icon,
-                  tooltip: 'Save full screenshot (Ctrl+Shift+F)',
-                  onPressed: onSaveFullScreenshot,
-                  icon: Icons.wallpaper_rounded,
-                  iconSize: 18,
-                ),
-              ),
-            ),
-            if (move != null) move.menu,
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(7),
-              child: CallbackShortcuts(
-                bindings: {
-                  const SingleActivator(LogicalKeyboardKey.tab): () {
-                    onCloseTabForward?.call();
-                  },
+          ),
+          const _GroupDivider(),
+          ?move?.menu,
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(7),
+            child: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.tab): () {
+                  onCloseTabForward?.call();
                 },
-                child: IconButton(
-                  key: const Key('overlay-close'),
-                  focusNode: closeFocusNode,
-                  tooltip: closeTooltip,
-                  onPressed: onClose,
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                ),
+              },
+              child: OverlayIconButton(
+                key: const Key('overlay-close'),
+                focusNode: closeFocusNode,
+                tooltip: closeTooltip,
+                onPressed: onClose,
+                icon: Icons.close_rounded,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -266,135 +348,111 @@ class SelectionActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final highContrast = MediaQuery.highContrastOf(context);
-    return Material(
-      key: const Key('selection-action-chip'),
-      color: colors.surfaceContainerLow,
-      elevation: 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.16),
-      surfaceTintColor: colors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.surface),
-        side: BorderSide(
-          color: highContrast ? colors.onSurface : colors.outlineVariant,
-          width: highContrast ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.sm,
-        ),
-        child: Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (canCopyText)
-              FeedbackActionButton(
-                buttonKey: const Key('selection-copy-text'),
-                actionId: ActionIds.copyText,
-                kind: FeedbackButtonKind.tonal,
-                onPressed: onCopyText,
-                icon: Icons.text_snippet_rounded,
-                label: 'Copy text',
-                doneLabel: 'Copied',
+    return OverlayChrome(
+      surfaceKey: const Key('selection-action-chip'),
+      child: Wrap(
+        spacing: AppSpacing.xs,
+        runSpacing: AppSpacing.xs,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (canCopyText)
+            FeedbackActionButton(
+              buttonKey: const Key('selection-copy-text'),
+              actionId: ActionIds.copyText,
+              tonal: true,
+              onPressed: onCopyText,
+              icon: Icons.text_snippet_rounded,
+              tooltip: 'Copy text',
+              doneTooltip: 'Copied',
+            ),
+          if (canLiftObject)
+            OverlayIconButton(
+              key: const Key('selection-lift-object'),
+              onPressed: onLiftObject,
+              icon: Icons.auto_awesome_motion_rounded,
+              tooltip: 'Lift object',
+            ),
+          if (canCopyScreenshot)
+            FeedbackActionButton(
+              buttonKey: const Key('selection-copy-screenshot'),
+              actionId: ActionIds.copyScreenshot,
+              onPressed: onCopyScreenshot,
+              icon: Icons.content_copy_rounded,
+              tooltip: 'Copy screenshot',
+              doneTooltip: 'Copied',
+            ),
+          if (canSaveScreenshot)
+            FeedbackActionButton(
+              buttonKey: const Key('selection-save-screenshot'),
+              actionId: ActionIds.saveScreenshot,
+              onPressed: onSaveScreenshot,
+              icon: Icons.save_alt_rounded,
+              tooltip: 'Save screenshot',
+              doneTooltip: 'Saved',
+            ),
+          if (canSearchWeb)
+            FeedbackActionButton(
+              buttonKey: const Key('selection-search-web'),
+              actionId: ActionIds.searchWeb,
+              onPressed: onSearchWeb,
+              icon: Icons.travel_explore_rounded,
+              tooltip: searchWebTooltip,
+              doneTooltip: 'Opened',
+            ),
+          for (final item in detections) ...[
+            const _GroupDivider(),
+            if (_canOpen(item))
+              OverlayIconButton(
+                key: Key('selection-open-${item.kind.name}'),
+                onPressed: () => onOpenDetection?.call(item),
+                icon: _openIcon(item.kind),
+                tooltip: _openLabel(item.kind),
               ),
-            if (canLiftObject)
-              OutlinedButton.icon(
-                key: const Key('selection-lift-object'),
-                onPressed: onLiftObject,
-                icon: const Icon(Icons.auto_awesome_motion_rounded, size: 16),
-                label: const Text('Lift object'),
-              ),
-            if (canCopyScreenshot)
-              FeedbackActionButton(
-                buttonKey: const Key('selection-copy-screenshot'),
-                actionId: ActionIds.copyScreenshot,
-                kind: FeedbackButtonKind.outlined,
-                onPressed: onCopyScreenshot,
-                icon: Icons.content_copy_rounded,
-                label: 'Copy screenshot',
-                doneLabel: 'Copied',
-              ),
-            if (canSaveScreenshot)
-              FeedbackActionButton(
-                buttonKey: const Key('selection-save-screenshot'),
-                actionId: ActionIds.saveScreenshot,
-                kind: FeedbackButtonKind.outlined,
-                onPressed: onSaveScreenshot,
-                icon: Icons.save_alt_rounded,
-                label: 'Save screenshot',
-                doneLabel: 'Saved',
-              ),
-            if (canSearchWeb)
-              Tooltip(
-                message: searchWebTooltip,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('selection-search-web'),
-                  actionId: ActionIds.searchWeb,
-                  kind: FeedbackButtonKind.outlined,
-                  onPressed: onSearchWeb,
-                  icon: Icons.travel_explore_rounded,
-                  label: 'Search the web',
-                  doneLabel: 'Opened',
-                ),
-              ),
-            for (final item in detections) ...[
-              if (_canOpen(item))
-                OutlinedButton(
-                  key: Key('selection-open-${item.kind.name}'),
-                  onPressed: () => onOpenDetection?.call(item),
-                  child: Text(_openLabel(item.kind)),
-                ),
-              FeedbackActionButton(
-                buttonKey: Key('selection-copy-${item.kind.name}'),
-                actionId: ActionIds.copyDetection,
-                kind: FeedbackButtonKind.text,
-                onPressed: () => onCopyDetection?.call(item),
-                icon: Icons.content_copy_rounded,
-                label: 'Copy',
-                doneLabel: 'Copied',
-              ),
-            ],
-            if (confirmTarget case final target?)
-              DecoratedBox(
-                key: const Key('selection-open-confirmation'),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadii.control),
-                  color: colors.surfaceContainerHighest,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                    vertical: AppSpacing.sm,
-                  ),
-                  child: Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.xs,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 280),
-                        child: Text('Open $target?'),
-                      ),
-                      FilledButton(
-                        key: const Key('selection-confirm-open'),
-                        onPressed: onConfirmOpen,
-                        child: const Text('Open'),
-                      ),
-                      TextButton(
-                        key: const Key('selection-cancel-open'),
-                        onPressed: onCancelOpen,
-                        child: const Text('Cancel'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            FeedbackActionButton(
+              buttonKey: Key('selection-copy-${item.kind.name}'),
+              actionId: ActionIds.copyDetection,
+              onPressed: () => onCopyDetection?.call(item),
+              icon: Icons.content_copy_rounded,
+              tooltip: _copyLabel(item.kind),
+              doneTooltip: 'Copied',
+            ),
           ],
-        ),
+          if (confirmTarget case final target?)
+            DecoratedBox(
+              key: const Key('selection-open-confirmation'),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(overlayIconButtonRadius),
+                color: colors.surfaceContainerHighest,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs,
+                ),
+                child: Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 280),
+                      child: Text('Open $target?'),
+                    ),
+                    FilledButton(
+                      key: const Key('selection-confirm-open'),
+                      onPressed: onConfirmOpen,
+                      child: const Text('Open'),
+                    ),
+                    TextButton(
+                      key: const Key('selection-cancel-open'),
+                      onPressed: onCancelOpen,
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -404,6 +462,20 @@ class SelectionActionChip extends StatelessWidget {
     DetectedTextKind.email => 'Compose email',
     DetectedTextKind.phone => 'Copy number',
     DetectedTextKind.code => 'Open code content',
+  };
+
+  static String _copyLabel(DetectedTextKind kind) => switch (kind) {
+    DetectedTextKind.link => 'Copy link',
+    DetectedTextKind.email => 'Copy email address',
+    DetectedTextKind.phone => 'Copy number',
+    DetectedTextKind.code => 'Copy code content',
+  };
+
+  static IconData _openIcon(DetectedTextKind kind) => switch (kind) {
+    DetectedTextKind.link => Icons.open_in_new_rounded,
+    DetectedTextKind.email => Icons.mail_outline_rounded,
+    DetectedTextKind.phone => Icons.phone_rounded,
+    DetectedTextKind.code => Icons.qr_code_2_rounded,
   };
 
   static bool _canOpen(DetectedTextItem item) =>
@@ -428,92 +500,72 @@ class SubjectActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final highContrast = MediaQuery.highContrastOf(context);
-    return Material(
-      key: const Key('subject-action-chip'),
-      color: colors.surfaceContainerLow,
-      elevation: 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.16),
-      surfaceTintColor: colors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.surface),
-        side: BorderSide(
-          color: highContrast ? colors.onSurface : colors.outlineVariant,
-          width: highContrast ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.sm,
-        ),
-        child: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          children: [
-            if (exporting)
-              const SizedBox.square(
-                dimension: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 240),
-              child: Text(
-                exporting ? 'Exporting subject…' : status ?? 'Subject selected',
-                key: const Key('subject-chip-status'),
-                style: text.bodySmall?.copyWith(
-                  color: highContrast
-                      ? colors.onSurface
-                      : colors.onSurface.withValues(alpha: 0.82),
-                  fontWeight: FontWeight.w600,
+    return OverlayChrome(
+      surfaceKey: const Key('subject-action-chip'),
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: AppSpacing.xs,
+        runSpacing: AppSpacing.xs,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (exporting) ...[
+                  const SizedBox.square(
+                    dimension: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                ],
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 240),
+                  child: Text(
+                    exporting
+                        ? 'Exporting subject…'
+                        : status ?? 'Subject selected',
+                    key: const Key('subject-chip-status'),
+                    style: _statusStyle(context),
+                  ),
                 ),
-              ),
+              ],
             ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(2),
-              child: Tooltip(
-                message: copySubjectTooltip,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('overlay-copy-subject-image'),
-                  actionId: ActionIds.copySubject,
-                  kind: FeedbackButtonKind.tonal,
-                  onPressed: exporting ? null : onCopy,
-                  icon: Icons.image_rounded,
-                  label: 'Copy image',
-                  doneLabel: 'Copied',
-                ),
-              ),
+          ),
+          const _GroupDivider(),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(2),
+            child: FeedbackActionButton(
+              buttonKey: const Key('overlay-copy-subject-image'),
+              actionId: ActionIds.copySubject,
+              tonal: true,
+              onPressed: exporting ? null : onCopy,
+              icon: Icons.image_rounded,
+              tooltip: copySubjectTooltip,
+              doneTooltip: 'Copied',
             ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(3),
-              child: Tooltip(
-                message: saveSubjectTooltip,
-                child: FeedbackActionButton(
-                  buttonKey: const Key('overlay-save-subject-png'),
-                  actionId: ActionIds.saveSubject,
-                  kind: FeedbackButtonKind.outlined,
-                  onPressed: exporting ? null : onSave,
-                  icon: Icons.save_alt_rounded,
-                  label: 'Save PNG',
-                  doneLabel: 'Saved',
-                ),
-              ),
+          ),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(3),
+            child: FeedbackActionButton(
+              buttonKey: const Key('overlay-save-subject-png'),
+              actionId: ActionIds.saveSubject,
+              onPressed: exporting ? null : onSave,
+              icon: Icons.save_alt_rounded,
+              tooltip: saveSubjectTooltip,
+              doneTooltip: 'Saved',
             ),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(4),
-              child: IconButton(
-                key: const Key('overlay-remove-subject'),
-                tooltip: removeSubjectTooltip,
-                onPressed: onRemove,
-                icon: const Icon(Icons.close_rounded, size: 18),
-              ),
+          ),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(4),
+            child: OverlayIconButton(
+              key: const Key('overlay-remove-subject'),
+              tooltip: removeSubjectTooltip,
+              onPressed: onRemove,
+              icon: Icons.close_rounded,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -531,48 +583,30 @@ class LoopHintChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final highContrast = MediaQuery.highContrastOf(context);
-    return Material(
-      key: const Key('selection-loop-hint-chip'),
-      color: colors.surfaceContainerLow,
-      elevation: 1,
-      shadowColor: colors.shadow.withValues(alpha: 0.14),
-      surfaceTintColor: colors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.surface),
-        side: BorderSide(
-          color: highContrast ? colors.onSurface : colors.outlineVariant,
-          width: highContrast ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        child: Wrap(
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          children: [
-            Text(selectedAsText ? 'Selected as text' : 'Selected as image'),
-            const Text('·'),
-            FocusTraversalOrder(
-              order: const NumericFocusOrder(1),
-              child: TextButton(
-                key: const Key('selection-loop-flip'),
-                onPressed: onFlip,
-                child: Text(
-                  selectedAsText
-                      ? 'Select as image instead'
-                      : 'Select as text instead',
-                ),
-              ),
+    return OverlayChrome(
+      surfaceKey: const Key('selection-loop-hint-chip'),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              selectedAsText ? 'Selected as text' : 'Selected as image',
+              style: _statusStyle(context),
             ),
-          ],
-        ),
+          ),
+          FocusTraversalOrder(
+            order: const NumericFocusOrder(1),
+            child: OverlayIconButton(
+              key: const Key('selection-loop-flip'),
+              onPressed: onFlip,
+              icon: Icons.swap_horiz_rounded,
+              tooltip: selectedAsText
+                  ? 'Select as image instead'
+                  : 'Select as text instead',
+            ),
+          ),
+        ],
       ),
     );
   }

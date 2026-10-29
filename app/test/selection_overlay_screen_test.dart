@@ -14,6 +14,7 @@ import 'package:kiriglyph/overlay/overlay_frame.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
 import 'package:kiriglyph/providers.dart';
 import 'package:kiriglyph/ui/kiriglyph_app.dart';
+import 'package:kiriglyph/ui/overlay/presentable_transparency.dart';
 
 import 'support/overlay_fakes.dart';
 import 'support/workspace_harness.dart';
@@ -179,7 +180,9 @@ void main() {
     expect(overlay.phase, OverlayPhase.idle);
     expect(overlay.shell.events.last, 'hide');
     expect(find.byKey(const Key('overlay-toolbar')), findsNothing);
-    expect(find.text('Enable instant capture'), findsOneWidget);
+    // The hidden window keeps a transparent last frame, not the main screen.
+    expect(find.text('Enable instant capture'), findsNothing);
+    expect(find.byType(PresentableTransparency), findsOneWidget);
   });
 
   testWidgets('Close dismisses the overlay', (tester) async {
@@ -207,7 +210,7 @@ void main() {
   ) async {
     await openOverlay(tester);
     final copy = find.byKey(const Key('overlay-copy'));
-    expect(tester.widget<ButtonStyleButton>(copy).onPressed, isNull);
+    expect(tester.widget<IconButton>(copy).onPressed, isNull);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
@@ -265,7 +268,7 @@ void main() {
 
   testWidgets('off-text stroke selects frozen full-bleed text', (tester) async {
     await openOverlay(tester, result: _displaySizedResult());
-    await tester.tap(find.text('Free draw'));
+    await tester.tap(find.byTooltip('Free draw'));
     await tester.pump();
 
     await _drawStroke(tester, const [
@@ -287,7 +290,7 @@ void main() {
     tester,
   ) async {
     await openOverlay(tester, result: _displaySizedResult());
-    await tester.tap(find.text('Free draw'));
+    await tester.tap(find.byTooltip('Free draw'));
     await tester.pump();
     await _drawStroke(tester, const [
       Offset(175, 90),

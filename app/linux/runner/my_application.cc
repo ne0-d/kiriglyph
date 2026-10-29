@@ -24,6 +24,15 @@ static constexpr gint64 kPlacementSettleUs = 150 * G_TIME_SPAN_MILLISECOND;
 static constexpr gint64 kPlacementTimeoutUs = 2500 * G_TIME_SPAN_MILLISECOND;
 // Focus settles after mapping; a short loss is not a dismissal.
 static constexpr guint kFocusOutDebounceMs = 250;
+// The normal window maps once Dart has painted its screen; if Dart never
+// answers, it maps anyway rather than never appearing.
+static constexpr guint kPaintFallbackMs = 800;
+// GTK paint cycles to wait after the Flutter view is shown. The first draws
+// the frame Flutter has; the next gives one just rasterized time to land.
+static constexpr gint kRevealPaints = 2;
+// A reveal that never paints must not leave an invisible fullscreen window
+// holding the pointer and keyboard.
+static constexpr guint kRevealTimeoutMs = 500;
 static constexpr char kOverlayStyleClass[] = "kiriglyph-overlay";
 
 struct _MyApplication {
@@ -39,11 +48,16 @@ struct _MyApplication {
   gboolean dart_ready;
   gboolean first_frame;
   gboolean show_requested;
+  // The normal window was asked for and Dart is painting its screen; Dart
+  // maps the window with `present` once that frame is rendered.
+  gboolean awaiting_paint;
+  guint present_timeout_id;
   gboolean quitting;
   guint quit_timeout_id;
 
-  // Selection overlay: the same window, fullscreen and undecorated, mapped
-  // transparent until Dart paints the frozen frame.
+  // Selection overlay: the same window, fullscreen and undecorated. It maps
+  // with Flutter's view hidden, so only GTK's transparent surface shows, and
+  // the view is shown once Dart has painted the frozen frame.
   gboolean overlay;
   gboolean overlay_was_active;
   gint normal_width;
@@ -57,6 +71,8 @@ struct _MyApplication {
   FlMethodCall* reveal_call;
   GdkFrameClock* reveal_clock;
   gulong reveal_after_paint_id;
+  gint reveal_paints_left;
+  guint reveal_timeout_id;
   guint focus_out_timeout_id;
   gboolean suppress_focus_loss;
 };
@@ -70,11 +86,60 @@ static void clear_source(guint* id) {
   }
 }
 
-static void present_window(MyApplication* self) {
+static void send_to_dart(MyApplication* self, const char* method);
+
+static void cancel_pending_present(MyApplication* self) {
+  self->awaiting_paint = FALSE;
+  clear_source(&self->present_timeout_id);
+}
+
+// Maps the window. A window maps with the last frame Flutter rendered over
+// an opaque black background, so callers only get here once Flutter has
+// rendered what the window should show.
+static void map_window(MyApplication* self) {
+  cancel_pending_present(self);
   self->show_requested = TRUE;
   if (self->first_frame) {
     gtk_window_present(self->window);
   }
+}
+
+static gboolean present_timeout_cb(gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  self->present_timeout_id = 0;
+  map_window(self);
+  return G_SOURCE_REMOVE;
+}
+
+static void arm_present_timeout(MyApplication* self) {
+  if (self->first_frame && self->present_timeout_id == 0) {
+    self->present_timeout_id =
+        g_timeout_add(kPaintFallbackMs, present_timeout_cb, self);
+  }
+}
+
+// Presents the window. The overlay maps at once; its Flutter view stays
+// hidden until the reveal. The normal window first asks Dart to paint its
+// screen, because the hidden window kept a stale frame (transparent, from
+// the overlay) that would show over black until the next frame arrives; Dart
+// then maps it through `present`.
+static void present_window(MyApplication* self) {
+  if (self->overlay) {
+    map_window(self);
+    return;
+  }
+  self->show_requested = TRUE;
+  if (gtk_widget_get_mapped(GTK_WIDGET(self->window))) {
+    // Already on screen with current content; only raise it.
+    gtk_window_present(self->window);
+    return;
+  }
+  if (self->awaiting_paint) {
+    return;
+  }
+  self->awaiting_paint = TRUE;
+  send_to_dart(self, "presented");
+  arm_present_timeout(self);
 }
 
 static void send_to_dart(MyApplication* self, const char* method) {
@@ -287,6 +352,7 @@ static gboolean prepare_timeout_cb(gpointer user_data) {
 // whether it was visible, after GNOME has removed it from the screen.
 static void prepare_capture(MyApplication* self, FlMethodCall* method_call) {
   finish_prepare(self, FALSE);
+  cancel_pending_present(self);
   if (self->overlay || !gtk_widget_get_visible(GTK_WIDGET(self->window))) {
     respond_bool(method_call, FALSE);
     return;
@@ -309,6 +375,7 @@ static void fail_placement(MyApplication* self, const char* code,
 }
 
 static void finish_reveal(MyApplication* self) {
+  clear_source(&self->reveal_timeout_id);
   if (self->reveal_clock != nullptr) {
     if (self->reveal_after_paint_id != 0) {
       g_signal_handler_disconnect(self->reveal_clock,
@@ -325,7 +392,18 @@ static void finish_reveal(MyApplication* self) {
 }
 
 static void reveal_after_paint_cb(GdkFrameClock* clock, gpointer user_data) {
-  finish_reveal(MY_APPLICATION(user_data));
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (--self->reveal_paints_left > 0) {
+    return;
+  }
+  finish_reveal(self);
+}
+
+static gboolean reveal_timeout_cb(gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  self->reveal_timeout_id = 0;
+  finish_reveal(self);
+  return G_SOURCE_REMOVE;
 }
 
 static FlValue* monitor_value(GdkMonitor* monitor) {
@@ -411,13 +489,19 @@ static void set_view_background(MyApplication* self, const char* color) {
 }
 
 // Switches the hidden window into a transparent, undecorated fullscreen
-// surface. The desktop stays visible through it until Dart paints a frame.
+// surface. The desktop stays visible through it until the reveal.
+//
+// Flutter's view is hidden for that time. GDK's Wayland backend ignores
+// toplevel opacity, and the view maps with whatever it last rendered over an
+// opaque black background, so a mapped view shows black until Flutter paints
+// at the new size. With the view hidden, the window shows only what GTK
+// paints itself: a transparent surface.
 static void enter_overlay_mode(MyApplication* self) {
   self->overlay = TRUE;
   self->overlay_was_active = FALSE;
   GtkWidget* widget = GTK_WIDGET(self->window);
-  gtk_widget_set_opacity(widget, 0.0);
   gtk_window_get_size(self->window, &self->normal_width, &self->normal_height);
+  gtk_widget_hide(GTK_WIDGET(self->view));
   if (self->header_bar != nullptr) {
     gtk_widget_hide(self->header_bar);
   }
@@ -441,9 +525,10 @@ static void leave_overlay_mode(MyApplication* self) {
   self->overlay = FALSE;
   self->suppress_focus_loss = FALSE;
   self->show_requested = FALSE;
+  cancel_pending_present(self);
   GtkWidget* widget = GTK_WIDGET(self->window);
   gtk_widget_hide(widget);
-  gtk_widget_set_opacity(widget, 1.0);
+  gtk_widget_show(GTK_WIDGET(self->view));
   gtk_window_unfullscreen(self->window);
   gtk_window_set_decorated(self->window, TRUE);
   if (self->header_bar != nullptr) {
@@ -490,8 +575,12 @@ static void reveal_overlay(MyApplication* self, FlMethodCall* method_call) {
                                  nullptr, nullptr);
     return;
   }
+  // Showing the view makes it draw, and that draw waits for a Flutter frame
+  // at the window's size, so the first thing on screen is a rendered frame.
   GtkWidget* widget = GTK_WIDGET(self->window);
-  gtk_widget_set_opacity(widget, 1.0);
+  GtkWidget* view = GTK_WIDGET(self->view);
+  gtk_widget_show(view);
+  gtk_widget_grab_focus(view);
   GdkFrameClock* clock = gtk_widget_get_frame_clock(widget);
   if (clock == nullptr) {
     fl_method_call_respond_success(method_call, nullptr, nullptr);
@@ -499,9 +588,12 @@ static void reveal_overlay(MyApplication* self, FlMethodCall* method_call) {
   }
   self->reveal_call = FL_METHOD_CALL(g_object_ref(method_call));
   self->reveal_clock = GDK_FRAME_CLOCK(g_object_ref(clock));
+  self->reveal_paints_left = kRevealPaints;
   self->reveal_after_paint_id =
       g_signal_connect(clock, "after-paint", G_CALLBACK(reveal_after_paint_cb),
                        self);
+  self->reveal_timeout_id =
+      g_timeout_add(kRevealTimeoutMs, reveal_timeout_cb, self);
   gdk_frame_clock_begin_updating(clock);
 }
 
@@ -553,7 +645,8 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     g_ptr_array_set_size(self->pending, 0);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (g_strcmp0(method, "present") == 0) {
-    present_window(self);
+    // Dart has painted the screen the window should show.
+    map_window(self);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (g_strcmp0(method, "prepareCapture") == 0) {
     prepare_capture(self, method_call);
@@ -598,7 +691,13 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   self->first_frame = TRUE;
-  if (self->show_requested) {
+  if (!self->show_requested) {
+    return;
+  }
+  if (self->awaiting_paint) {
+    // Dart is painting the window's screen; map it if Dart does not answer.
+    arm_present_timeout(self);
+  } else {
     gtk_window_present(self->window);
   }
 }
@@ -611,6 +710,7 @@ static gboolean delete_event_cb(GtkWidget* widget, GdkEvent* event,
   }
   leave_overlay_mode(self);
   self->show_requested = FALSE;
+  cancel_pending_present(self);
   gtk_widget_hide(widget);
   send_to_dart(self, "hidden");
   return TRUE;
@@ -744,6 +844,9 @@ static gint command_line_cb(GApplication* application,
       g_ptr_array_add(dart_arguments, argv[i]);
     }
   }
+  if (self->window == nullptr && (background || select)) {
+    g_ptr_array_add(dart_arguments, const_cast<char*>("--hidden-start"));
+  }
   g_ptr_array_add(dart_arguments, nullptr);
 
   if (quit) {
@@ -797,6 +900,7 @@ static void my_application_dispose(GObject* object) {
   clear_source(&self->prepare_timeout_id);
   clear_source(&self->placement_poll_id);
   clear_source(&self->focus_out_timeout_id);
+  clear_source(&self->present_timeout_id);
   finish_reveal(self);
   g_clear_object(&self->prepare_call);
   g_clear_object(&self->placement_call);

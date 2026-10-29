@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:kiriglyph/app/app_lifecycle.dart';
 import 'package:kiriglyph/app/app_shell.dart';
+import 'package:kiriglyph/app/window_surface.dart';
 import 'package:kiriglyph/capture/screen_capture.dart';
 import 'package:kiriglyph/capture/session_image_store.dart';
 import 'package:kiriglyph/ocr/ocr_result.dart';
@@ -370,6 +371,20 @@ void main() {
       expect(state().phase, OverlayPhase.idle);
       expect(shell.events.last, 'hide');
     });
+
+    test(
+      'presenting the window paints the main screen before it maps',
+      () async {
+        await AppLifecycle(container).start();
+        container.read(mainWindowShownProvider.notifier).hidden();
+        expect(container.read(mainWindowShownProvider), isFalse);
+
+        await shell.handler!(AppCommand.presented);
+
+        expect(container.read(mainWindowShownProvider), isTrue);
+        expect(shell.events, ['present']);
+      },
+    );
 
     test('closing or quitting dismisses an open overlay', () async {
       await AppLifecycle(container).start();

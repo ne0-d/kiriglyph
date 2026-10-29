@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:kiriglyph/app/app_shell.dart';
+import 'package:kiriglyph/app/window_surface.dart';
 import 'package:kiriglyph/background/shortcut_pause.dart';
 import 'package:kiriglyph/capture/capture_session.dart';
 import 'package:kiriglyph/diagnostics/timing_log.dart';
@@ -48,7 +49,13 @@ class AppLifecycle {
             .setVisual(TrayVisualState.idle, statusLabel: 'Ready');
       case AppCommand.overlayFocusLost:
         await overlay.handleFocusLost();
+      case AppCommand.presented:
+        _container.read(mainWindowShownProvider.notifier).shown();
+        // Native maps the window when this returns, so the main screen is
+        // already rendered and not the transparent frame the hidden window kept.
+        await _container.read(appShellProvider).present();
       case AppCommand.hidden:
+        _container.read(mainWindowShownProvider.notifier).hidden();
         // Closing the window ends every session and discards its capture.
         await overlay.dismiss();
         await session.discardSession();

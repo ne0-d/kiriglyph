@@ -18,6 +18,9 @@ enum AppCommand {
 
   /// The overlay window lost focus to another window or display.
   overlayFocusLost,
+
+  /// The window was presented as the normal app window.
+  presented,
 }
 
 typedef AppCommandHandler = Future<void> Function(AppCommand command);
@@ -38,7 +41,9 @@ abstract interface class AppShell {
   /// Registers [handler] and releases commands queued before Dart started.
   Future<void> start(AppCommandHandler handler);
 
-  /// Shows and raises the window.
+  /// Shows and raises the window, once Flutter has rendered the screen it
+  /// should show. A window maps with the last frame Flutter rendered, which
+  /// for a hidden window is a stale one over an opaque black background.
   Future<void> present();
 
   /// Hides the window if it is visible, so a capture cannot contain it.
@@ -46,12 +51,13 @@ abstract interface class AppShell {
   Future<bool> prepareCapture();
 
   /// Shows the window as a borderless fullscreen overlay on the display under
-  /// the pointer. It is transparent until Flutter paints over it. Completes
-  /// with the display it landed on; throws [OverlayPlacementException].
+  /// the pointer. Flutter's view stays hidden and the window is a transparent
+  /// GTK surface until [revealOverlay]. Completes with the display it landed
+  /// on; throws [OverlayPlacementException].
   Future<DisplayPlacement> showOverlay();
 
-  /// Reveals the already-mapped transparent overlay after Flutter has painted
-  /// the frozen frame and native GTK has presented a paint cycle.
+  /// Shows Flutter's view in the already-mapped overlay, after Flutter has
+  /// painted the frozen frame and native GTK has presented paint cycles.
   Future<void> revealOverlay();
 
   /// Hides the overlay and restores the normal window for next time.
@@ -73,6 +79,12 @@ class PlatformAppShell implements AppShell {
 
   static const _frameWait = Duration(milliseconds: 500);
 
+  /// Completes after the next frame, or after [_frameWait] if none comes.
+  Future<void> _renderedFrame() => SchedulerBinding.instance.endOfFrame.timeout(
+    _frameWait,
+    onTimeout: () {},
+  );
+
   @override
   Future<void> start(AppCommandHandler handler) async {
     _channel.setMethodCallHandler((call) async {
@@ -81,6 +93,7 @@ class PlatformAppShell implements AppShell {
         'hidden' => AppCommand.hidden,
         'quit' => AppCommand.quit,
         'overlayFocusLost' => AppCommand.overlayFocusLost,
+        'presented' => AppCommand.presented,
         _ => null,
       };
       if (command == null) {
@@ -97,6 +110,11 @@ class PlatformAppShell implements AppShell {
 
   @override
   Future<void> present() async {
+    // Flutter renders while the window is hidden. The first frame builds the
+    // screen; the second gives it time to be rasterized before the window maps.
+    for (var frame = 0; frame < 2; frame++) {
+      await _renderedFrame();
+    }
     try {
       await _channel.invokeMethod<void>('present');
     } on MissingPluginException {
@@ -117,10 +135,7 @@ class PlatformAppShell implements AppShell {
   Future<DisplayPlacement> showOverlay() async {
     // The window maps with whatever Flutter last rendered, so let the
     // transparent overlay frame render first.
-    await SchedulerBinding.instance.endOfFrame.timeout(
-      _frameWait,
-      onTimeout: () {},
-    );
+    await _renderedFrame();
     final Object? reply;
     try {
       reply = await _channel.invokeMethod<Object?>('showOverlay');
@@ -138,10 +153,7 @@ class PlatformAppShell implements AppShell {
 
   @override
   Future<void> revealOverlay() async {
-    await SchedulerBinding.instance.endOfFrame.timeout(
-      _frameWait,
-      onTimeout: () {},
-    );
+    await _renderedFrame();
     try {
       await _channel.invokeMethod<void>('revealOverlay');
     } on MissingPluginException {

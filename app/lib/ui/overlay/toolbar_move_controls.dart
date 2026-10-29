@@ -1,16 +1,14 @@
 import 'package:flutter/widgets.dart';
 
-/// The move grip and move menu, handed to [OverlayToolbar] so they sit inside
-/// it instead of floating above it.
+/// The toolbar's options menu, handed to the toolbar so it sits inside it.
+/// Dragging needs no control: the whole toolbar is the handle.
 class ToolbarMoveControls extends InheritedWidget {
   const ToolbarMoveControls({
     super.key,
-    required this.grip,
     required this.menu,
     required super.child,
   });
 
-  final Widget grip;
   final Widget menu;
 
   static ToolbarMoveControls? maybeOf(BuildContext context) =>
@@ -18,5 +16,5 @@ class ToolbarMoveControls extends InheritedWidget {
 
   @override
   bool updateShouldNotify(ToolbarMoveControls oldWidget) =>
-      grip != oldWidget.grip || menu != oldWidget.menu;
+      menu != oldWidget.menu;
 }

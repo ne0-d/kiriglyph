@@ -26,7 +26,7 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Two clicks'));
+      await tester.tap(find.byTooltip('Two clicks'));
       await tester.tap(find.byKey(const Key('overlay-save-full-screenshot')));
 
       expect(selectedTool, SelectionTool.twoClicks);
@@ -68,7 +68,7 @@ void main() {
     expect(find.byKey(const Key('selection-copy-screenshot')), findsOneWidget);
     expect(find.byKey(const Key('selection-save-screenshot')), findsOneWidget);
     expect(find.byKey(const Key('selection-search-web')), findsOneWidget);
-    expect(find.text('Open link'), findsOneWidget);
+    expect(find.byTooltip('Open link'), findsOneWidget);
   });
 
   testWidgets('selection action chip requires confirmation before opening', (
@@ -100,7 +100,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Open code content'));
+    await tester.tap(find.byTooltip('Open code content'));
     expect(requested, isTrue);
     expect(confirmed, isFalse);
     expect(find.text('Open https://code.example?'), findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Open code content'), findsNothing);
+    expect(find.byTooltip('Open code content'), findsNothing);
     await tester.tap(find.byKey(const Key('selection-copy-code')));
     expect(copied, isTrue);
   });

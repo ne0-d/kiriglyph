@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:kiriglyph/app/window_surface.dart';
 import 'package:kiriglyph/app/app_shell.dart';
 import 'package:kiriglyph/capture/capture_session.dart';
 import 'package:kiriglyph/capture/screen_capture.dart';
@@ -148,6 +149,9 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     } catch (_) {
       // Capturing anyway is better than not responding to the shortcut.
     }
+    // The window is off screen now; its last frame must not be the main
+    // screen when it maps again as the overlay.
+    ref.read(mainWindowShownProvider.notifier).hidden();
     if (operation != _operation) {
       return true;
     }
@@ -528,6 +532,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
   }
 
   Future<void> _present() async {
+    ref.read(mainWindowShownProvider.notifier).shown();
     try {
       await _shell.present();
     } catch (_) {

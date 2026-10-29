@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:kiriglyph/app/window_surface.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
 import 'package:kiriglyph/ui/app_header.dart';
 import 'package:kiriglyph/ui/onboarding/onboarding_view.dart';
+import 'package:kiriglyph/ui/overlay/presentable_transparency.dart';
 import 'package:kiriglyph/ui/overlay/selection_overlay_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -19,6 +21,9 @@ class HomeScreen extends ConsumerWidget {
     );
     if (overlay) {
       return const SelectionOverlayScreen();
+    }
+    if (!ref.watch(mainWindowShownProvider)) {
+      return const PresentableTransparency();
     }
 
     return const Scaffold(

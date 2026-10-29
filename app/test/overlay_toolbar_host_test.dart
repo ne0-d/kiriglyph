@@ -10,7 +10,7 @@ import 'package:kiriglyph/ui/overlay/overlay_toolbar_host.dart';
 import 'package:kiriglyph/ui/overlay/toolbar_session.dart';
 
 void main() {
-  testWidgets('drag grip moves toolbar within the screen', (tester) async {
+  testWidgets('dragging anywhere on the toolbar moves it', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
@@ -41,20 +41,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final grip = find.byKey(const Key('overlay-toolbar-move-grip'));
-    expect(grip, findsOneWidget);
-    final before = tester.getTopLeft(find.byKey(const Key('overlay-toolbar')));
-    final gesture = await tester.startGesture(tester.getCenter(grip));
-    await gesture.moveBy(const Offset(40, -30));
-    await tester.pump();
-    final after = tester.getTopLeft(find.byKey(const Key('overlay-toolbar')));
-    expect(after, isNot(equals(before)));
-    await gesture.up();
-    await tester.pump();
-
-    // The grip and the move menu sit inside the toolbar, not above it.
+    // The options menu sits inside the toolbar, not above it; there is no
+    // separate drag handle.
     final toolbar = tester.getRect(find.byKey(const Key('overlay-toolbar')));
-    expect(toolbar.contains(tester.getCenter(grip)), isTrue);
+    expect(find.byKey(const Key('overlay-toolbar-move-grip')), findsNothing);
     expect(
       toolbar.contains(
         tester.getCenter(find.byKey(const Key('overlay-toolbar-move-menu'))),
@@ -62,7 +52,7 @@ void main() {
       isTrue,
     );
 
-    // Any part of the toolbar drags it, not just the grip.
+    // Any part of the toolbar drags it.
     final status = find.byKey(const Key('overlay-status'));
     final start = tester.getTopLeft(find.byKey(const Key('overlay-toolbar')));
     final drag = await tester.startGesture(tester.getCenter(status));

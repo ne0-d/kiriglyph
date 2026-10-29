@@ -35,6 +35,7 @@ import 'package:kiriglyph/ui/overlay/keyboard_help_panel.dart';
 import 'package:kiriglyph/ui/overlay/overlay_effects.dart';
 import 'package:kiriglyph/ui/overlay/overlay_toolbar.dart';
 import 'package:kiriglyph/ui/overlay/overlay_toolbar_host.dart';
+import 'package:kiriglyph/ui/overlay/presentable_transparency.dart';
 import 'package:kiriglyph/ui/overlay/persistent_edge_glow.dart';
 import 'package:kiriglyph/ui/overlay/subject_overlay_layer.dart';
 import 'package:kiriglyph/ui/workspace/capture_canvas.dart';
@@ -822,7 +823,7 @@ class _SelectionOverlayScreenState
         overlay.phase == OverlayPhase.ready ||
         overlay.phase == OverlayPhase.failed;
 
-    return Material(
+    final screen = Material(
       type: MaterialType.transparency,
       child: FocusScope(
         autofocus: true,
@@ -1099,6 +1100,7 @@ class _SelectionOverlayScreenState
         ),
       ),
     );
+    return PresentableTransparency(child: screen);
   }
 
   static String _lines(int count) => count == 1 ? '1 line' : '$count lines';

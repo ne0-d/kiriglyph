@@ -134,13 +134,13 @@ void main() {
     );
     expect(
       tester
-          .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy')))
+          .widget<IconButton>(find.byKey(const Key('overlay-copy')))
           .onPressed,
       isNull,
     );
     expect(
       tester
-          .widget<ButtonStyleButton>(find.byKey(const Key('overlay-copy-all')))
+          .widget<IconButton>(find.byKey(const Key('overlay-copy-all')))
           .onPressed,
       isNull,
     );
@@ -286,7 +286,7 @@ void main() {
     await tester.pump();
     expect(overlay.segmenter.prompts, hasLength(3));
 
-    await tester.tap(find.text('Free draw'));
+    await tester.tap(find.byTooltip('Free draw'));
     await tester.pump();
     final gesture = await tester.createGesture();
     await gesture.down(const Offset(320, 120));

@@ -12,10 +12,9 @@ Widget _host(ActionFeedbackController controller, {VoidCallback? onPressed}) =>
             child: FeedbackActionButton(
               buttonKey: const Key('button'),
               actionId: ActionIds.copyText,
-              kind: FeedbackButtonKind.tonal,
               icon: Icons.content_copy_rounded,
-              label: 'Copy text',
-              doneLabel: 'Copied',
+              tooltip: 'Copy text',
+              doneTooltip: 'Copied',
               onPressed: onPressed,
             ),
           ),
@@ -24,32 +23,30 @@ Widget _host(ActionFeedbackController controller, {VoidCallback? onPressed}) =>
     );
 
 void main() {
-  testWidgets('shows Copied with a check, then eases back to the label', (
-    tester,
-  ) async {
+  testWidgets('draws a check and says Copied, then eases back', (tester) async {
     final controller = ActionFeedbackController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(_host(controller, onPressed: () {}));
 
-    expect(find.text('Copy text'), findsOneWidget);
-    expect(find.text('Copied'), findsNothing);
+    expect(find.byTooltip('Copy text'), findsOneWidget);
+    expect(find.byTooltip('Copied'), findsNothing);
 
     controller.succeed({ActionIds.copyText});
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Copied'), findsOneWidget);
-    expect(find.text('Copy text'), findsNothing);
+    expect(find.byTooltip('Copied'), findsOneWidget);
+    expect(find.byTooltip('Copy text'), findsNothing);
     expect(find.byType(CustomPaint), findsWidgets);
 
-    // The hold ends and the label returns.
+    // The hold ends and the idle state returns.
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
-    expect(find.text('Copy text'), findsOneWidget);
-    expect(find.text('Copied'), findsNothing);
+    expect(find.byTooltip('Copy text'), findsOneWidget);
+    expect(find.byTooltip('Copied'), findsNothing);
   });
 
-  testWidgets('a failure says Failed in the error colour', (tester) async {
+  testWidgets('a failure says Failed', (tester) async {
     final controller = ActionFeedbackController();
     addTearDown(controller.dispose);
     await tester.pumpWidget(_host(controller, onPressed: () {}));
@@ -58,12 +55,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Failed'), findsOneWidget);
+    expect(find.byTooltip('Failed'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
   });
 
-  testWidgets('the button keeps its width while the label changes', (
+  testWidgets('the button keeps its size through the confirm cycle', (
     tester,
   ) async {
     final controller = ActionFeedbackController();
@@ -90,7 +87,7 @@ void main() {
 
     controller.succeed({ActionIds.saveScreenshot});
     await tester.pump();
-    expect(find.text('Copy text'), findsOneWidget);
+    expect(find.byTooltip('Copy text'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('button')));
     expect(pressed, 1);
@@ -108,7 +105,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Copied'), findsOneWidget);
+    expect(find.byTooltip('Copied'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
   });
