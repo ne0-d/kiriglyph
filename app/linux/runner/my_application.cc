@@ -18,8 +18,8 @@ static constexpr guint kQuitTimeoutSeconds = 2;
 // GNOME animates an unmapped window away; capturing earlier would include it.
 static constexpr guint kHideSettleMs = 300;
 static constexpr guint kPlacementPollMs = 50;
-// The surface enters its output only after the compositor shows the first
-// fullscreen buffer; until then GDK guesses the monitor from position 0,0.
+// A surface enters its output only after the compositor shows its first
+// buffer; until then GDK guesses the monitor at the layout origin.
 static constexpr gint64 kPlacementSettleUs = 150 * G_TIME_SPAN_MILLISECOND;
 static constexpr gint64 kPlacementTimeoutUs = 2500 * G_TIME_SPAN_MILLISECOND;
 // Focus settles after mapping; a short loss is not a dismissal.
@@ -27,13 +27,13 @@ static constexpr guint kFocusOutDebounceMs = 250;
 // The normal window maps once Dart has painted its screen; if Dart never
 // answers, it maps anyway rather than never appearing.
 static constexpr guint kPaintFallbackMs = 800;
-// GTK paint cycles to wait after the Flutter view is shown. The first draws
-// the frame Flutter has; the next gives one just rasterized time to land.
+// GTK paint cycles to wait once the overlay is fullscreen at its display's
+// size. The first draws the frozen frame; the next gives it time to land.
 static constexpr gint kRevealPaints = 2;
-// A reveal that never paints must not leave an invisible fullscreen window
-// holding the pointer and keyboard.
+// An overlay that never paints must not keep Dart waiting for it.
 static constexpr guint kRevealTimeoutMs = 500;
 static constexpr char kOverlayStyleClass[] = "kiriglyph-overlay";
+static constexpr char kProbeStyleClass[] = "kiriglyph-probe";
 
 struct _MyApplication {
   GtkApplication parent_instance;
@@ -55,20 +55,30 @@ struct _MyApplication {
   gboolean quitting;
   guint quit_timeout_id;
 
-  // Selection overlay: the same window, fullscreen and undecorated. It maps
-  // with Flutter's view hidden, so only GTK's transparent surface shows, and
-  // the view is shown once Dart has painted the frozen frame.
+  // Selection overlay: the same window, fullscreen and undecorated. Mutter
+  // paints black behind a fullscreen window unless one opaque surface covers
+  // its monitor, so the window never maps fullscreen before it has content:
+  // it maps once, on a display found beforehand with a probe window, and its
+  // first buffer is the frozen frame Dart has already rendered.
   gboolean overlay;
   gboolean overlay_was_active;
   gint normal_width;
   gint normal_height;
   FlMethodCall* prepare_call;
   guint prepare_timeout_id;
+  // A tiny transparent window that Mutter places on the pointer's display.
+  GtkWidget* probe;
+  gboolean probe_drawn;
+  FlMethodCall* locate_call;
+  guint locate_poll_id;
+  gint64 locate_started_us;
+  gint locate_monitor;
+  gint64 locate_monitor_since_us;
+  // The pending showOverlay call, answered once the overlay is on screen.
   FlMethodCall* placement_call;
   guint placement_poll_id;
   gint64 placement_started_us;
-  gint64 placement_size_matched_us;
-  FlMethodCall* reveal_call;
+  gint placement_monitor;
   GdkFrameClock* reveal_clock;
   gulong reveal_after_paint_id;
   gint reveal_paints_left;
@@ -118,11 +128,11 @@ static void arm_present_timeout(MyApplication* self) {
   }
 }
 
-// Presents the window. The overlay maps at once; its Flutter view stays
-// hidden until the reveal. The normal window first asks Dart to paint its
-// screen, because the hidden window kept a stale frame (transparent, from
-// the overlay) that would show over black until the next frame arrives; Dart
-// then maps it through `present`.
+// Presents the window. The overlay maps at once: Dart rendered the frozen
+// frame before asking for it. The normal window first asks Dart to paint its
+// screen, because the hidden window kept a stale frame from the overlay that
+// would show until the next frame arrives; Dart then maps it through
+// `present`.
 static void present_window(MyApplication* self) {
   if (self->overlay) {
     map_window(self);
@@ -294,6 +304,21 @@ static const gchar* suggested_png_name(FlMethodCall* method_call) {
   return name == nullptr || *name == '\0' ? "kiriglyph-subject.png" : name;
 }
 
+// A non-empty string argument of a method call, or null.
+static const gchar* string_argument(FlMethodCall* method_call,
+                                    const gchar* name) {
+  FlValue* args = fl_method_call_get_args(method_call);
+  if (args == nullptr || fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
+    return nullptr;
+  }
+  FlValue* value = fl_value_lookup_string(args, name);
+  if (value == nullptr || fl_value_get_type(value) != FL_VALUE_TYPE_STRING) {
+    return nullptr;
+  }
+  const gchar* text = fl_value_get_string(value);
+  return text == nullptr || *text == '\0' ? nullptr : text;
+}
+
 static gchar* default_png_name() {
   g_autoptr(GDateTime) now = g_date_time_new_now_local();
   return g_date_time_format(now, "kiriglyph-%Y%m%d-%H%M%S.png");
@@ -314,15 +339,39 @@ static void choose_save_png(MyApplication* self, FlMethodCall* method_call) {
     suggested = fallback;
   }
   gtk_file_chooser_set_current_name(chooser, suggested);
+  const gchar* configured = string_argument(method_call, "folder");
   const gchar* pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
   gtk_file_chooser_set_current_folder(
-      chooser, pictures != nullptr ? pictures : g_get_home_dir());
+      chooser, configured != nullptr
+                   ? configured
+                   : (pictures != nullptr ? pictures : g_get_home_dir()));
   GtkFileFilter* filter = gtk_file_filter_new();
   gtk_file_filter_set_name(filter, "PNG images");
   gtk_file_filter_add_mime_type(filter, "image/png");
   gtk_file_filter_add_pattern(filter, "*.png");
   gtk_file_chooser_add_filter(chooser, filter);
 
+  SaveDialogData* data =
+      static_cast<SaveDialogData*>(g_malloc0(sizeof(SaveDialogData)));
+  data->method_call = FL_METHOD_CALL(g_object_ref(method_call));
+  data->dialog = GTK_FILE_CHOOSER_NATIVE(g_object_ref(dialog));
+  g_signal_connect(dialog, "response", G_CALLBACK(save_dialog_response_cb),
+                   data);
+  gtk_native_dialog_show(GTK_NATIVE_DIALOG(dialog));
+  g_object_unref(dialog);
+}
+
+// Lets the user pick a folder; responds with its path, or null if cancelled.
+static void choose_folder(MyApplication* self, FlMethodCall* method_call) {
+  GtkFileChooserNative* dialog = gtk_file_chooser_native_new(
+      "Choose a Folder", self->window, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+      "_Select", "_Cancel");
+  gtk_native_dialog_set_transient_for(GTK_NATIVE_DIALOG(dialog), self->window);
+  gtk_native_dialog_set_modal(GTK_NATIVE_DIALOG(dialog), TRUE);
+  const gchar* current = string_argument(method_call, "current");
+  if (current != nullptr) {
+    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), current);
+  }
   SaveDialogData* data =
       static_cast<SaveDialogData*>(g_malloc0(sizeof(SaveDialogData)));
   data->method_call = FL_METHOD_CALL(g_object_ref(method_call));
@@ -364,17 +413,9 @@ static void prepare_capture(MyApplication* self, FlMethodCall* method_call) {
       g_timeout_add(kHideSettleMs, prepare_timeout_cb, self);
 }
 
-static void fail_placement(MyApplication* self, const char* code,
-                           const char* message) {
+// Stops waiting for the overlay to come on screen.
+static void stop_showing(MyApplication* self) {
   clear_source(&self->placement_poll_id);
-  if (self->placement_call != nullptr) {
-    fl_method_call_respond_error(self->placement_call, code, message, nullptr,
-                                 nullptr);
-    g_clear_object(&self->placement_call);
-  }
-}
-
-static void finish_reveal(MyApplication* self) {
   clear_source(&self->reveal_timeout_id);
   if (self->reveal_clock != nullptr) {
     if (self->reveal_after_paint_id != 0) {
@@ -385,9 +426,24 @@ static void finish_reveal(MyApplication* self) {
     gdk_frame_clock_end_updating(self->reveal_clock);
     g_clear_object(&self->reveal_clock);
   }
-  if (self->reveal_call != nullptr) {
-    fl_method_call_respond_success(self->reveal_call, nullptr, nullptr);
-    g_clear_object(&self->reveal_call);
+}
+
+// Completes showOverlay: the overlay is on screen with the frozen frame.
+static void finish_show(MyApplication* self) {
+  stop_showing(self);
+  if (self->placement_call != nullptr) {
+    fl_method_call_respond_success(self->placement_call, nullptr, nullptr);
+    g_clear_object(&self->placement_call);
+  }
+}
+
+static void fail_placement(MyApplication* self, const char* code,
+                           const char* message) {
+  stop_showing(self);
+  if (self->placement_call != nullptr) {
+    fl_method_call_respond_error(self->placement_call, code, message, nullptr,
+                                 nullptr);
+    g_clear_object(&self->placement_call);
   }
 }
 
@@ -396,14 +452,32 @@ static void reveal_after_paint_cb(GdkFrameClock* clock, gpointer user_data) {
   if (--self->reveal_paints_left > 0) {
     return;
   }
-  finish_reveal(self);
+  finish_show(self);
 }
 
 static gboolean reveal_timeout_cb(gpointer user_data) {
   MyApplication* self = MY_APPLICATION(user_data);
   self->reveal_timeout_id = 0;
-  finish_reveal(self);
+  finish_show(self);
   return G_SOURCE_REMOVE;
+}
+
+// Lets the fullscreen overlay paint the frozen frame before showOverlay
+// completes.
+static void await_reveal_paints(MyApplication* self) {
+  GdkFrameClock* clock = gtk_widget_get_frame_clock(GTK_WIDGET(self->window));
+  if (clock == nullptr) {
+    finish_show(self);
+    return;
+  }
+  self->reveal_clock = GDK_FRAME_CLOCK(g_object_ref(clock));
+  self->reveal_paints_left = kRevealPaints;
+  self->reveal_after_paint_id =
+      g_signal_connect(clock, "after-paint", G_CALLBACK(reveal_after_paint_cb),
+                       self);
+  self->reveal_timeout_id =
+      g_timeout_add(kRevealTimeoutMs, reveal_timeout_cb, self);
+  gdk_frame_clock_begin_updating(clock);
 }
 
 static FlValue* monitor_value(GdkMonitor* monitor) {
@@ -421,15 +495,142 @@ static FlValue* monitor_value(GdkMonitor* monitor) {
   return value;
 }
 
-// Reports the monitor the fullscreen window landed on, with every monitor's
-// logical geometry, once the compositor has configured and shown it there.
-static gboolean placement_poll_cb(gpointer user_data) {
+// Paints the probe fully transparent; it exists only to be placed.
+static gboolean probe_draw_cb(GtkWidget* widget, cairo_t* cr,
+                              gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  self->probe_drawn = TRUE;
+  cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+  cairo_set_source_rgba(cr, 0, 0, 0, 0);
+  cairo_paint(cr);
+  return TRUE;
+}
+
+static void destroy_probe(MyApplication* self) {
+  GtkWidget* probe = self->probe;
+  self->probe = nullptr;
+  if (probe != nullptr) {
+    gtk_widget_destroy(probe);
+  }
+}
+
+static void fail_locate(MyApplication* self, const char* code,
+                        const char* message) {
+  clear_source(&self->locate_poll_id);
+  destroy_probe(self);
+  if (self->locate_call != nullptr) {
+    fl_method_call_respond_error(self->locate_call, code, message, nullptr,
+                                 nullptr);
+    g_clear_object(&self->locate_call);
+  }
+}
+
+// Reports the monitor the probe landed on, with every monitor's logical
+// geometry, once GDK's answer has stopped changing.
+static gboolean locate_poll_cb(gpointer user_data) {
   MyApplication* self = MY_APPLICATION(user_data);
   const gint64 now = g_get_monotonic_time();
-  if (now - self->placement_started_us > kPlacementTimeoutUs) {
+  if (now - self->locate_started_us > kPlacementTimeoutUs) {
+    self->locate_poll_id = 0;
+    fail_locate(self, "placement_timeout",
+                "The display under the pointer was not found.");
+    return G_SOURCE_REMOVE;
+  }
+
+  // The probe first draws after the compositor's first configure, shortly
+  // before the compositor shows it on its output.
+  GtkWidget* probe = self->probe;
+  if (probe == nullptr || !self->probe_drawn ||
+      !gtk_widget_get_mapped(probe)) {
+    return G_SOURCE_CONTINUE;
+  }
+  GdkWindow* gdk_window = gtk_widget_get_window(probe);
+  if (gdk_window == nullptr) {
+    return G_SOURCE_CONTINUE;
+  }
+  GdkDisplay* display = gtk_widget_get_display(probe);
+  GdkMonitor* placed = gdk_display_get_monitor_at_window(display, gdk_window);
+  const gint count = gdk_display_get_n_monitors(display);
+  gint target = -1;
+  for (gint i = 0; i < count; i++) {
+    if (gdk_display_get_monitor(display, i) == placed) {
+      target = i;
+    }
+  }
+  if (target != self->locate_monitor) {
+    self->locate_monitor = target;
+    self->locate_monitor_since_us = now;
+    return G_SOURCE_CONTINUE;
+  }
+  if (target < 0 || now - self->locate_monitor_since_us < kPlacementSettleUs) {
+    return G_SOURCE_CONTINUE;
+  }
+
+  g_autoptr(FlValue) monitors = fl_value_new_list();
+  for (gint i = 0; i < count; i++) {
+    fl_value_append_take(monitors,
+                         monitor_value(gdk_display_get_monitor(display, i)));
+  }
+  g_autoptr(FlValue) result = fl_value_new_map();
+  fl_value_set_string_take(result, "target", fl_value_new_int(target));
+  fl_value_set_string(result, "monitors", monitors);
+  self->locate_poll_id = 0;
+  destroy_probe(self);
+  fl_method_call_respond_success(self->locate_call, result, nullptr);
+  g_clear_object(&self->locate_call);
+  return G_SOURCE_REMOVE;
+}
+
+// Finds the display under the pointer without showing the overlay. Mutter
+// places a window shown for the first time on the pointer's monitor, so a
+// tiny transparent probe window learns it, and the overlay can later map
+// fullscreen there once, already showing the frozen frame.
+static void locate_display(MyApplication* self, FlMethodCall* method_call) {
+  if (self->locate_call != nullptr) {
+    fl_method_call_respond_error(method_call, "busy",
+                                 "The display is already being located.",
+                                 nullptr, nullptr);
+    return;
+  }
+  GtkWidget* probe = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  GtkWindow* window = GTK_WINDOW(probe);
+  gtk_window_set_default_size(window, 1, 1);
+  gtk_window_set_decorated(window, FALSE);
+  gtk_window_set_accept_focus(window, FALSE);
+  gtk_window_set_focus_on_map(window, FALSE);
+  gtk_window_set_skip_taskbar_hint(window, TRUE);
+  gtk_window_set_skip_pager_hint(window, TRUE);
+  GdkVisual* rgba_visual =
+      gdk_screen_get_rgba_visual(gtk_widget_get_screen(probe));
+  if (rgba_visual != nullptr) {
+    gtk_widget_set_visual(probe, rgba_visual);
+  }
+  gtk_widget_set_app_paintable(probe, TRUE);
+  gtk_style_context_add_class(gtk_widget_get_style_context(probe),
+                              kProbeStyleClass);
+  g_signal_connect(probe, "draw", G_CALLBACK(probe_draw_cb), self);
+  // Closing the probe from outside destroys it; forget it then.
+  g_signal_connect(probe, "destroy", G_CALLBACK(gtk_widget_destroyed),
+                   &self->probe);
+  self->probe = probe;
+  self->probe_drawn = FALSE;
+  self->locate_call = FL_METHOD_CALL(g_object_ref(method_call));
+  self->locate_started_us = g_get_monotonic_time();
+  self->locate_monitor = -1;
+  self->locate_monitor_since_us = 0;
+  self->locate_poll_id = g_timeout_add(kPlacementPollMs, locate_poll_cb, self);
+  gtk_widget_show(probe);
+}
+
+// Waits until the overlay is mapped fullscreen at its display's size, then
+// lets it paint before showOverlay completes.
+static gboolean placement_poll_cb(gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (g_get_monotonic_time() - self->placement_started_us >
+      kPlacementTimeoutUs) {
     self->placement_poll_id = 0;
     fail_placement(self, "placement_timeout",
-                   "The overlay window was not placed on a display.");
+                   "The overlay window was not shown on its display.");
     return G_SOURCE_REMOVE;
   }
 
@@ -439,46 +640,21 @@ static gboolean placement_poll_cb(gpointer user_data) {
       (gdk_window_get_state(gdk_window) & GDK_WINDOW_STATE_FULLSCREEN) == 0) {
     return G_SOURCE_CONTINUE;
   }
-  GdkDisplay* display = gtk_widget_get_display(widget);
-  GdkMonitor* placed = gdk_display_get_monitor_at_window(display, gdk_window);
-  if (placed == nullptr) {
+  GdkMonitor* monitor = gdk_display_get_monitor(
+      gtk_widget_get_display(widget), self->placement_monitor);
+  if (monitor == nullptr) {
     return G_SOURCE_CONTINUE;
   }
   GdkRectangle geometry;
-  gdk_monitor_get_geometry(placed, &geometry);
+  gdk_monitor_get_geometry(monitor, &geometry);
   // A fullscreen configure sizes the window to its monitor; until then the
   // window still has its normal size.
   if (gtk_widget_get_allocated_width(widget) != geometry.width ||
       gtk_widget_get_allocated_height(widget) != geometry.height) {
-    self->placement_size_matched_us = 0;
     return G_SOURCE_CONTINUE;
   }
-  if (self->placement_size_matched_us == 0) {
-    self->placement_size_matched_us = now;
-  }
-  if (now - self->placement_size_matched_us < kPlacementSettleUs) {
-    return G_SOURCE_CONTINUE;
-  }
-
-  g_autoptr(FlValue) monitors = fl_value_new_list();
-  gint target = -1;
-  const gint count = gdk_display_get_n_monitors(display);
-  for (gint i = 0; i < count; i++) {
-    GdkMonitor* monitor = gdk_display_get_monitor(display, i);
-    if (monitor == placed) {
-      target = i;
-    }
-    fl_value_append_take(monitors, monitor_value(monitor));
-  }
-  if (target < 0) {
-    return G_SOURCE_CONTINUE;
-  }
-  g_autoptr(FlValue) result = fl_value_new_map();
-  fl_value_set_string_take(result, "target", fl_value_new_int(target));
-  fl_value_set_string(result, "monitors", monitors);
   self->placement_poll_id = 0;
-  fl_method_call_respond_success(self->placement_call, result, nullptr);
-  g_clear_object(&self->placement_call);
+  await_reveal_paints(self);
   return G_SOURCE_REMOVE;
 }
 
@@ -488,20 +664,14 @@ static void set_view_background(MyApplication* self, const char* color) {
   fl_view_set_background_color(self->view, &background_color);
 }
 
-// Switches the hidden window into a transparent, undecorated fullscreen
-// surface. The desktop stays visible through it until the reveal.
-//
-// Flutter's view is hidden for that time. GDK's Wayland backend ignores
-// toplevel opacity, and the view maps with whatever it last rendered over an
-// opaque black background, so a mapped view shows black until Flutter paints
-// at the new size. With the view hidden, the window shows only what GTK
-// paints itself: a transparent surface.
+// Switches the hidden window into an undecorated overlay with a transparent
+// GTK background. show_overlay makes it fullscreen and maps it; Flutter's
+// view covers it with what Dart rendered.
 static void enter_overlay_mode(MyApplication* self) {
   self->overlay = TRUE;
   self->overlay_was_active = FALSE;
   GtkWidget* widget = GTK_WIDGET(self->window);
   gtk_window_get_size(self->window, &self->normal_width, &self->normal_height);
-  gtk_widget_hide(GTK_WIDGET(self->view));
   if (self->header_bar != nullptr) {
     gtk_widget_hide(self->header_bar);
   }
@@ -510,14 +680,14 @@ static void enter_overlay_mode(MyApplication* self) {
                               kOverlayStyleClass);
   gtk_widget_set_app_paintable(widget, TRUE);
   set_view_background(self, "rgba(0,0,0,0)");
-  gtk_window_fullscreen(self->window);
 }
 
-// Hides the window first so the user never sees it unfullscreen, then
-// restores the normal window for its next presentation.
+// Cancels locating or showing the overlay. Hides the window first so the
+// user never sees it unfullscreen, then restores the normal window for its
+// next presentation.
 static void leave_overlay_mode(MyApplication* self) {
+  fail_locate(self, "cancelled", "The overlay was dismissed.");
   fail_placement(self, "cancelled", "The overlay was dismissed.");
-  finish_reveal(self);
   clear_source(&self->focus_out_timeout_id);
   if (!self->overlay) {
     return;
@@ -528,7 +698,6 @@ static void leave_overlay_mode(MyApplication* self) {
   cancel_pending_present(self);
   GtkWidget* widget = GTK_WIDGET(self->window);
   gtk_widget_hide(widget);
-  gtk_widget_show(GTK_WIDGET(self->view));
   gtk_window_unfullscreen(self->window);
   gtk_window_set_decorated(self->window, TRUE);
   if (self->header_bar != nullptr) {
@@ -543,10 +712,29 @@ static void leave_overlay_mode(MyApplication* self) {
   }
 }
 
+// Shows the overlay fullscreen on a display from locate_display. Mutter
+// paints a black backdrop behind a fullscreen window that is not one opaque
+// surface covering its monitor, so the window maps only once, already aimed
+// at its display: its first draw waits for a Flutter frame at the display's
+// size, and Dart rendered the frozen frame before calling, so that frame is
+// the first buffer the compositor shows.
 static void show_overlay(MyApplication* self, FlMethodCall* method_call) {
   if (self->placement_call != nullptr) {
     fl_method_call_respond_error(method_call, "busy",
-                                 "The overlay is already being placed.",
+                                 "The overlay is already being shown.",
+                                 nullptr, nullptr);
+    return;
+  }
+  FlValue* args = fl_method_call_get_args(method_call);
+  FlValue* value = args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+                       ? fl_value_lookup_string(args, "display")
+                       : nullptr;
+  GdkDisplay* display = gtk_widget_get_display(GTK_WIDGET(self->window));
+  if (value == nullptr || fl_value_get_type(value) != FL_VALUE_TYPE_INT ||
+      fl_value_get_int(value) < 0 ||
+      fl_value_get_int(value) >= gdk_display_get_n_monitors(display)) {
+    fl_method_call_respond_error(method_call, "bad_args",
+                                 "showOverlay expects a display index.",
                                  nullptr, nullptr);
     return;
   }
@@ -554,47 +742,15 @@ static void show_overlay(MyApplication* self, FlMethodCall* method_call) {
   if (!self->overlay) {
     enter_overlay_mode(self);
   }
+  self->placement_monitor = static_cast<gint>(fl_value_get_int(value));
+  gtk_window_fullscreen_on_monitor(self->window,
+                                   gtk_window_get_screen(self->window),
+                                   self->placement_monitor);
   self->placement_call = FL_METHOD_CALL(g_object_ref(method_call));
   self->placement_started_us = g_get_monotonic_time();
-  self->placement_size_matched_us = 0;
   self->placement_poll_id =
       g_timeout_add(kPlacementPollMs, placement_poll_cb, self);
   present_window(self);
-}
-
-static void reveal_overlay(MyApplication* self, FlMethodCall* method_call) {
-  if (!self->overlay) {
-    fl_method_call_respond_error(method_call, "not_overlay",
-                                 "The overlay is not active.", nullptr,
-                                 nullptr);
-    return;
-  }
-  if (self->reveal_call != nullptr) {
-    fl_method_call_respond_error(method_call, "busy",
-                                 "The overlay is already being revealed.",
-                                 nullptr, nullptr);
-    return;
-  }
-  // Showing the view makes it draw, and that draw waits for a Flutter frame
-  // at the window's size, so the first thing on screen is a rendered frame.
-  GtkWidget* widget = GTK_WIDGET(self->window);
-  GtkWidget* view = GTK_WIDGET(self->view);
-  gtk_widget_show(view);
-  gtk_widget_grab_focus(view);
-  GdkFrameClock* clock = gtk_widget_get_frame_clock(widget);
-  if (clock == nullptr) {
-    fl_method_call_respond_success(method_call, nullptr, nullptr);
-    return;
-  }
-  self->reveal_call = FL_METHOD_CALL(g_object_ref(method_call));
-  self->reveal_clock = GDK_FRAME_CLOCK(g_object_ref(clock));
-  self->reveal_paints_left = kRevealPaints;
-  self->reveal_after_paint_id =
-      g_signal_connect(clock, "after-paint", G_CALLBACK(reveal_after_paint_cb),
-                       self);
-  self->reveal_timeout_id =
-      g_timeout_add(kRevealTimeoutMs, reveal_timeout_cb, self);
-  gdk_frame_clock_begin_updating(clock);
 }
 
 static gboolean focus_out_timeout_cb(gpointer user_data) {
@@ -648,14 +804,20 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     // Dart has painted the screen the window should show.
     map_window(self);
     response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (g_strcmp0(method, "requestPresent") == 0) {
+    // The tray's "Open Kiriglyph". Dart cannot tell whether the hidden window
+    // has its main screen painted, so it asks here and takes the same path
+    // as a second launch: `presented` to Dart, then `present` back.
+    present_window(self);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
   } else if (g_strcmp0(method, "prepareCapture") == 0) {
     prepare_capture(self, method_call);
     return;
+  } else if (g_strcmp0(method, "locateDisplay") == 0) {
+    locate_display(self, method_call);
+    return;
   } else if (g_strcmp0(method, "showOverlay") == 0) {
     show_overlay(self, method_call);
-    return;
-  } else if (g_strcmp0(method, "revealOverlay") == 0) {
-    reveal_overlay(self, method_call);
     return;
   } else if (g_strcmp0(method, "hideOverlay") == 0) {
     leave_overlay_mode(self);
@@ -678,6 +840,9 @@ static void method_call_cb(FlMethodChannel* channel, FlMethodCall* method_call,
     return;
   } else if (g_strcmp0(method, "chooseSavePng") == 0) {
     choose_save_png(self, method_call);
+    return;
+  } else if (g_strcmp0(method, "chooseFolder") == 0) {
+    choose_folder(self, method_call);
     return;
   } else if (g_strcmp0(method, "requestQuit") == 0) {
     request_quit(self);
@@ -736,12 +901,52 @@ static void install_overlay_style() {
   // opaque, which would make the compositor ignore the alpha channel.
   gtk_css_provider_load_from_data(
       provider,
-      "window.kiriglyph-overlay { background-color: transparent; "
-      "background-image: none; box-shadow: none; }",
+      "window.kiriglyph-overlay, window.kiriglyph-probe { "
+      "background-color: transparent; background-image: none; "
+      "box-shadow: none; }",
       -1, nullptr);
   gtk_style_context_add_provider_for_screen(
       gdk_screen_get_default(), GTK_STYLE_PROVIDER(provider),
       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
+static void about_action_cb(GSimpleAction* action, GVariant* parameter,
+                            gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  gtk_show_about_dialog(
+      self->window, "program-name", "Kiriglyph", "comments",
+      "Select and copy text from anything on your screen, or cut out any "
+      "object as a transparent PNG.",
+      "website", "https://github.com/ne0-d/kiriglyph", "logo-icon-name",
+      "kiriglyph-symbolic", nullptr);
+}
+
+static void quit_action_cb(GSimpleAction* action, GVariant* parameter,
+                           gpointer user_data) {
+  request_quit(MY_APPLICATION(user_data));
+}
+
+static const GActionEntry kWindowActions[] = {
+    {"about", about_action_cb, nullptr, nullptr, nullptr},
+    {"quit", quit_action_cb, nullptr, nullptr, nullptr},
+};
+
+// The header bar's main menu. A resident app has no other way to quit when
+// the top-bar icon is missing.
+static GtkWidget* create_main_menu(MyApplication* self) {
+  g_action_map_add_action_entries(G_ACTION_MAP(self->window), kWindowActions,
+                                  G_N_ELEMENTS(kWindowActions), self);
+  g_autoptr(GMenu) menu = g_menu_new();
+  g_menu_append(menu, "About Kiriglyph", "win.about");
+  g_menu_append(menu, "Quit Kiriglyph", "win.quit");
+  GtkWidget* button = gtk_menu_button_new();
+  gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(button), G_MENU_MODEL(menu));
+  gtk_widget_set_tooltip_text(button, "Main menu");
+  GtkWidget* icon =
+      gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON);
+  gtk_button_set_image(GTK_BUTTON(button), icon);
+  gtk_widget_show_all(button);
+  return button;
 }
 
 // Creates the window and starts the engine without showing the window.
@@ -774,18 +979,21 @@ static void create_window(MyApplication* self, char** dart_arguments) {
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
     self->header_bar = GTK_WIDGET(header_bar);
+    gtk_header_bar_pack_end(header_bar, create_main_menu(self));
   } else {
     gtk_window_set_title(window, "Kiriglyph");
   }
 
-  // The overlay maps transparent, which needs an alpha visual before realize.
+  // The overlay's GTK background is transparent, which needs an alpha visual
+  // before realize.
   GdkVisual* rgba_visual = gdk_screen_get_rgba_visual(screen);
   if (rgba_visual != nullptr) {
     gtk_widget_set_visual(GTK_WIDGET(window), rgba_visual);
   }
   install_overlay_style();
 
-  gtk_window_set_default_size(window, 1280, 720);
+  // The normal window is a small preferences page, not a document.
+  gtk_window_set_default_size(window, 620, 760);
   g_signal_connect(window, "delete-event", G_CALLBACK(delete_event_cb), self);
   g_signal_connect(window, "notify::is-active", G_CALLBACK(active_changed_cb),
                    self);
@@ -898,12 +1106,11 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   clear_source(&self->quit_timeout_id);
   clear_source(&self->prepare_timeout_id);
-  clear_source(&self->placement_poll_id);
   clear_source(&self->focus_out_timeout_id);
   clear_source(&self->present_timeout_id);
-  finish_reveal(self);
+  fail_locate(self, "cancelled", "The application is closing.");
+  fail_placement(self, "cancelled", "The application is closing.");
   g_clear_object(&self->prepare_call);
-  g_clear_object(&self->placement_call);
   g_clear_object(&self->channel);
   g_clear_pointer(&self->pending, g_ptr_array_unref);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);

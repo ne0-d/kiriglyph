@@ -213,7 +213,7 @@ class FakeScreenCapture implements ScreenCapturePort {
   FakeScreenCapture([
     this.result = const ScreenCapture(
       ScreenCaptureStatus.captured,
-      path: '/home/neo/Pictures/Screenshots/Screenshot.png',
+      path: '/home/user/Pictures/Screenshots/Screenshot.png',
     ),
   ]);
 

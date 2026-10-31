@@ -27,6 +27,7 @@ import 'package:kiriglyph/selection/region_selection_provider.dart';
 import 'package:kiriglyph/selection/rectangle_selection.dart' as rect;
 import 'package:kiriglyph/selection/selection_intent.dart';
 import 'package:kiriglyph/selection/subject_prompt_state.dart';
+import 'package:kiriglyph/settings/app_settings.dart';
 import 'package:kiriglyph/theme/app_theme.dart';
 import 'package:kiriglyph/ui/overlay/action_feedback.dart';
 import 'package:kiriglyph/ui/motion/app_motion.dart';
@@ -440,7 +441,8 @@ class _SelectionOverlayScreenState
     _showFeedback(
       outcome.kind == ScreenshotExportOutcomeKind.saved
           ? '${full ? 'Saved full screenshot' : 'Saved'} to '
-                'Pictures/${outcome.savedName ?? 'kiriglyph.png'}'
+                '${ref.read(saveFolderNameProvider)}/'
+                '${outcome.savedName ?? 'kiriglyph.png'}'
           : 'Could not save screenshot.',
       assertive: outcome.kind != ScreenshotExportOutcomeKind.saved,
       actions: {full ? ActionIds.saveFullScreenshot : ActionIds.saveScreenshot},
@@ -1523,7 +1525,8 @@ class _SelectionOverlayScreenState
     }
     final message = switch (outcome.kind) {
       SubjectExportOutcomeKind.saved =>
-        'Saved to Pictures/${outcome.savedName ?? 'image.png'}',
+        'Saved to ${ref.read(saveFolderNameProvider)}/'
+            '${outcome.savedName ?? 'image.png'}',
       SubjectExportOutcomeKind.cancelled => null,
       SubjectExportOutcomeKind.overwriteDeclined => 'Save cancelled',
       SubjectExportOutcomeKind.unwritableDestination =>

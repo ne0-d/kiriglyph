@@ -13,8 +13,14 @@ set(APPLICATION_ID "dev.kiriglyph.Kiriglyph")
 # versions of CMake.
 cmake_policy(SET CMP0063 NEW)
 
-# Load bundled libraries from the lib/ directory relative to the binary.
-set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+# Load bundled libraries from the lib/ directory relative to the binary. The
+# plugin libraries sit in lib/ themselves, so $ORIGIN is where each of them
+# finds libflutter_linux_gtk.so.
+set(CMAKE_INSTALL_RPATH "$ORIGIN/lib;$ORIGIN")
+# Plugin libraries are installed by copying their built files, so CMake never
+# rewrites their search path. Without this they keep the build machine's
+# directory as RUNPATH, which a package must not carry.
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 # Root filesystem for cross-building.
 if(FLUTTER_TARGET_PLATFORM_SYSROOT)

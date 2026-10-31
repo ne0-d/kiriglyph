@@ -22,8 +22,8 @@ from worker.portal_capture import (
     ("uri", "expected"),
     [
         (
-            "file:///home/neo/Pictures/Screenshots/Screenshot%20from%20x.png",
-            "/home/neo/Pictures/Screenshots/Screenshot from x.png",
+            "file:///home/user/Pictures/Screenshots/Screenshot%20from%20x.png",
+            "/home/user/Pictures/Screenshots/Screenshot from x.png",
         ),
         ("file://localhost/tmp/a.png", "/tmp/a.png"),
         ("file://otherhost/tmp/a.png", None),

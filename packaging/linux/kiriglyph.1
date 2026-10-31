@@ -1,0 +1,55 @@
+.TH KIRIGLYPH 1 "" "Kiriglyph" "User Commands"
+.SH NAME
+kiriglyph \- select and copy text from anything on screen, or cut out objects
+.SH SYNOPSIS
+.B kiriglyph
+[\fB\-\-background\fR | \fB\-\-select\fR | \fB\-\-quit\fR]
+.br
+.B kiriglyph \-\-setup
+.br
+.B kiriglyph \-\-version
+.br
+.B kiriglyph \-\-help
+.SH DESCRIPTION
+Kiriglyph freezes the screen on a keyboard shortcut. Drag over text to copy
+it, or click an object to cut it out as a transparent PNG. Text recognition
+and object segmentation run on this computer.
+.PP
+Kiriglyph runs as one resident instance. Starting it again hands the request
+to the running instance. It needs GNOME on Wayland and the GNOME Screenshot
+portal.
+.SH OPTIONS
+With no option, Kiriglyph opens its window.
+.TP
+.B \-\-background
+Start the resident instance hidden. The package starts it this way at login.
+.TP
+.B \-\-select
+Open the selection overlay. This is the command the keyboard shortcut runs.
+.TP
+.B \-\-quit
+Ask the running instance to quit.
+.TP
+.B \-\-setup
+Print the first-run steps and offer to create the GNOME custom shortcut.
+.TP
+.B \-\-version
+Print the Kiriglyph version.
+.TP
+.B \-\-help
+Show a short usage summary.
+.SH FILES
+.TP
+.I ~/.config/kiriglyph/settings.json
+Settings: the save folder and first-run state.
+.TP
+.I ~/.config/autostart/dev.kiriglyph.Kiriglyph.desktop
+Written when launch at login is switched off or on again.
+.SH PRIVACY
+Kiriglyph makes no network requests of its own. Working copies of the frozen
+screen live in a private runtime folder and are removed when the overlay
+closes. Images are saved only to the folder you choose, when you save.
+.SH BUGS
+Report problems at https://github.com/ne0-d/kiriglyph/issues
+.SH LICENSE
+Apache License, Version 2.0.

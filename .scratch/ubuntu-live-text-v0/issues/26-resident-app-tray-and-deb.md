@@ -7,12 +7,21 @@ installs from a single `.deb` for a beta release.
 **Blocked by:** nothing for the first two scopes. The `.deb` waits for the
 worker dependencies from 25 (barcode decoder) to settle.
 
-**Status:** approved; implementation in progress. Capture stays the current
-Screenshot portal method; silent capture is explicitly out of scope.
+**Status:** implemented; passes `scripts/check.sh full --build`; the `.deb` is
+checked on a clean Ubuntu (see Acceptance). Manual acceptance of the Orca tray
+menu and the display checks is still open. The instant
+open design in scope 1 was **superseded by issue 27**. Capture stays the
+current Screenshot portal method; silent capture is explicitly out of scope.
 
 ## Scope
 
-1. **Instant open, no black flash.** Cause: the fullscreen window is mapped
+1. **Instant open, no black flash.** *Superseded by
+   [27](27-no-black-frame-gnome-wayland.md) and
+   [ADR 0002](../../../docs/adr/0002-overlay-maps-once-on-a-located-display.md):
+   the opacity gating below did nothing on Wayland, and Mutter paints black
+   behind any non-opaque fullscreen window. The overlay now finds its display
+   with a probe window and maps fullscreen once, with the frozen frame already
+   rendered.* Original text: Cause: the fullscreen window is mapped
    before the captured frame exists, and Linux `first-frame` only covers engine
    startup. Fix: keep the pre-warmed window hidden; map it at opacity 0 only to
    learn placement; crop and publish the frozen frame while still invisible;
@@ -69,6 +78,45 @@ Snap, a signed APT repository, official Debian archive.
 - [ ] The top-bar icon appears on Ubuntu 26.04 with the AppIndicators
   extension; the menu items work; Quit leaves no worker processes; a notice
   appears when no host exists.
-- [ ] `.deb` installs, runs, upgrades, and removes cleanly on a clean machine;
-  `lintian` and `desktop-file-validate` findings are triaged.
+- [x] `.deb` installs, runs, upgrades, and removes cleanly on a clean machine;
+  `lintian` and `desktop-file-validate` findings are triaged. Lintian reports
+  nothing outside the documented overrides; `desktop-file-validate` and
+  `appstreamcli` pass. Install, start (virtual display), upgrade, remove and
+  purge pass in a clean rootless Ubuntu 26.04 root filesystem
+  (`scripts/acceptance/deb-clean-room/`). A run on a full Wayland desktop VM is
+  still a manual step.
 - [ ] Orca can reach and read the tray menu (manual, recorded in issue 14).
+
+## Comments
+
+- **Tray icon vanished after a quick restart (fixed).** The tray item used the
+  fixed bus name `dev.kiriglyph.Kiriglyph.StatusNotifierItem`. When the app
+  restarted quickly (a reinstall, for example), the new instance registered
+  that name just before GNOME's AppIndicators host finished cleaning up the old
+  instance, and the clean-up removed the entry by name, deleting the new
+  registration. The app still owned the name, so nothing looked wrong; the icon
+  just never showed. Reproduced by recording the session bus: the host's
+  `StatusNotifierItemUnregistered` for the name arrived 0.1 s after the new
+  registration, and 2 of 4 quick restarts lost the icon. The item is now
+  registered as `org.freedesktop.StatusNotifierItem-<pid>-1`, as other tray
+  apps do, so an old instance's clean-up cannot touch a new one. After the
+  fix, 9 of 9 quick restarts registered. Test: `status_notifier_test.dart`.
+- **Tray "Open Kiriglyph" showed a black window (fixed).** Closing the window
+  switches the main screen off (the hidden window keeps its last frame, which
+  must be transparent). The tray's Open called Dart's `present`, which only maps
+  the window, so it mapped that transparent frame over Mutter's black backdrop.
+  The launcher and a second launch go through native `present_window`, which
+  asks Dart to paint the main screen first, so they were fine. The tray now calls
+  a new `requestPresent` channel method that enters the same path. Test:
+  `selection_overlay_test.dart`, "opening the window from the tray paints the
+  main screen before it maps" (fails on the old wiring).
+- **Release preparation for 0.1.0.** Licence chosen
+  ([ADR 0004](../../../docs/adr/0004-apache-2-licence.md)); the package now has a
+  Debian-format copyright file, changelog and man page, AppStream homepage and
+  release data, a notice generator that reads real Dart licences and leaves out
+  development-only packages, and no build-machine path in its RUNPATH
+  (`CMAKE_BUILD_WITH_INSTALL_RPATH`). The empty `prerm` was dropped.
+  `lintian`, `desktop-file-validate` and `appstreamcli` findings are triaged in
+  [docs/packaging.md](../../../docs/packaging.md). Install, upgrade, removal and
+  purge were run in a throwaway Ubuntu 26.04 rootfs (see that page for what it
+  does and does not cover).

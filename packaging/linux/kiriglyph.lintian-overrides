@@ -1,0 +1,37 @@
+# Kiriglyph bundles a Flutter release build and a private Python runtime with
+# prebuilt wheels. The tags below describe how those third-party binaries were
+# built, not how this package is put together, and they are accepted on purpose.
+# The reasons are in docs/packaging.md. Tags about Kiriglyph's own files (a
+# build path in a plugin's RUNPATH, a missing changelog, bad metadata) are not
+# overridden, so lintian still catches them.
+
+# Debug symbols stay as upstream shipped them. libapp.so is Flutter's compiled
+# Dart snapshot and must never be stripped.
+kiriglyph: unstripped-binary-or-object [usr/lib/kiriglyph/*]
+
+# Pillow, OpenCV and the standalone CPython carry their own copies of image
+# codecs and compression libraries by design (see NOTICE for their licences).
+kiriglyph: embedded-library * [usr/lib/kiriglyph/worker-runtime/*]
+
+# The Flutter engine (Skia) carries its own freetype and libjpeg; the licences
+# of what it includes are in data/flutter_assets/NOTICES.Z.
+kiriglyph: embedded-library * [usr/lib/kiriglyph/lib/libflutter_linux_gtk.so]
+
+# A manylinux wheel (shapely) sets an unused /usr/local/lib64 search path.
+kiriglyph: custom-library-search-path * [usr/lib/kiriglyph/worker-runtime/*]
+
+# The standalone CPython is not built as a position-independent executable.
+kiriglyph: hardening-no-pie [usr/lib/kiriglyph/worker-runtime/python/bin/*]
+
+# libapp.so is a Dart snapshot, not a normal shared library, and numpy ships
+# test modules.
+kiriglyph: shared-library-lacks-prerequisites [usr/lib/kiriglyph/lib/libapp.so]
+kiriglyph: shared-library-lacks-prerequisites [usr/lib/kiriglyph/worker-runtime/*]
+
+# Helper scripts inside Python and its wheels that nothing here runs.
+kiriglyph: script-not-executable [usr/lib/kiriglyph/worker-runtime/*]
+kiriglyph: unusual-interpreter * [usr/lib/kiriglyph/worker-runtime/*]
+
+# Python files that begin with a shell-style header trick, which lintian reads
+# as broken shell scripts.
+kiriglyph: shell-script-fails-syntax-check [usr/lib/kiriglyph/worker-runtime/*]

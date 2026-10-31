@@ -12,6 +12,7 @@ import 'package:kiriglyph/export/screenshot_export.dart';
 import 'package:kiriglyph/export/subject_export.dart';
 import 'package:kiriglyph/segmentation/process_subject_segmenter.dart';
 import 'package:kiriglyph/segmentation/subject_segmenter.dart';
+import 'package:kiriglyph/settings/app_settings.dart';
 import 'package:kiriglyph/web/link_opener.dart';
 import 'package:kiriglyph/web/web_search_launcher.dart';
 import 'package:kiriglyph/worker/ocr_worker.dart';
@@ -81,7 +82,7 @@ final clipboardImagePortProvider = Provider<ClipboardImagePort>(
 );
 
 final savePngPortProvider = Provider<SavePngPort>(
-  (ref) => PlatformSavePngPort(),
+  (ref) => PlatformSavePngPort(folder: () => ref.read(saveDirectoryProvider)),
 );
 
 final subjectImageCodecProvider = Provider<SubjectImageCodec>(
@@ -100,6 +101,7 @@ final screenshotExportControllerProvider = Provider<ScreenshotExportController>(
   (ref) => ScreenshotExportController(
     clipboard: ref.watch(screenshotClipboardPortProvider),
     codec: ref.watch(screenshotImageCodecProvider),
+    picturesDirectory: () => ref.read(saveDirectoryProvider),
   ),
 );
 
@@ -115,5 +117,6 @@ final subjectExportControllerProvider = Provider<SubjectExportController>(
     savePort: ref.watch(savePngPortProvider),
     codec: ref.watch(subjectImageCodecProvider),
     onTimingPhase: ref.watch(timingLogProvider).mark,
+    picturesDirectory: () => ref.read(saveDirectoryProvider),
   ),
 );

@@ -6,7 +6,8 @@ delivery, built in two phases by agents that own disjoint files.
 
 **Blocked by:** nothing. Runs in parallel with 26 (see file ownership there).
 
-**Status:** approved; implementation in progress.
+**Status:** implemented; passes `scripts/check.sh full --build`. Manual
+acceptance below (real desktop, Orca) is still open.
 
 ## Scope
 

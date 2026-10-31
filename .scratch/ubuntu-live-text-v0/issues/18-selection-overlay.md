@@ -114,3 +114,7 @@ Risks not verified without a GUI:
    shows and the overlay closes by itself.
 7. After each dismissal, `ls $XDG_RUNTIME_DIR/kiriglyph-*` shows no
    `screen-capture-*.png`, and `~/Pictures` has no new `Screenshot*.png`.
+
+## Comments
+
+- The "Risks not verified" item about a black frame before the frozen frame turned out to be real on GNOME Wayland. Cause and fix: [issue 27](27-no-black-frame-gnome-wayland.md) and [ADR 0002](../../../docs/adr/0002-overlay-maps-once-on-a-located-display.md).

@@ -17,7 +17,7 @@ const copyAllTooltip = 'Copy all recognized text\nSelect all: Ctrl+A';
 const closeTooltip = 'Close (Esc)';
 const copySubjectTooltip = 'Copy selected subject image (Ctrl+C)';
 const saveSubjectTooltip =
-    'Save selected subject to Pictures (Ctrl+S)\nSave as… (Ctrl+Shift+S)';
+    'Save selected subject (Ctrl+S)\nSave as… (Ctrl+Shift+S)';
 const removeSubjectTooltip = 'Remove selection (Backspace or Delete)';
 const searchWebTooltip =
     'Search the web\nSelected text leaves this computer only when clicked.';

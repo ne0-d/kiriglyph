@@ -17,6 +17,8 @@ import 'package:kiriglyph/overlay/selection_overlay.dart';
 import 'package:kiriglyph/protocol/protocol_error.dart';
 import 'package:kiriglyph/providers.dart';
 import 'package:kiriglyph/selection/region_selection_provider.dart';
+import 'package:kiriglyph/settings/app_settings.dart';
+import 'package:kiriglyph/tray/status_notifier.dart';
 
 import 'support/fake_subject_segmenter.dart';
 import 'support/overlay_fakes.dart';
@@ -129,7 +131,7 @@ void main() {
       OverlayPhase.recognizing,
       OverlayPhase.ready,
     ]);
-    expect(shell.events, ['prepare', 'show', 'reveal']);
+    expect(shell.events, ['prepare', 'locate', 'show']);
     expect(pictures.listSync(), isEmpty, reason: 'portal file deleted');
     expect(codec.decoded.single, [1], reason: 'decoded in memory');
     expect(codec.crops.single.source, const PixelRect(0, 0, 200, 100));
@@ -154,6 +156,35 @@ void main() {
     );
     await overlay().start();
     expect(codec.crops.single.source, const PixelRect(200, 0, 100, 50));
+  });
+
+  test('the overlay is shown on the located display only once the frozen '
+      'frame is published, and recognition waits for it', () async {
+    shell.placement = DisplayPlacement(
+      monitors: twoDisplays.monitors,
+      targetIndex: 1,
+    );
+    shell.showGate = Completer<void>();
+    final eventsAtFrame = <String>[];
+    container.listen(selectionOverlayProvider, (_, next) {
+      if (next.frame != null && eventsAtFrame.isEmpty) {
+        eventsAtFrame.addAll(shell.events);
+      }
+    });
+
+    final start = overlay().start();
+    await until(() => shell.events.contains('show'));
+
+    expect(eventsAtFrame, ['prepare', 'locate']);
+    expect(shell.shownDisplay, 1);
+    expect(state().phase, OverlayPhase.recognizing);
+    expect(state().frame, isNotNull);
+    expect(worker.paths, isEmpty, reason: 'OCR starts once it is on screen');
+
+    shell.showGate!.complete();
+    await start;
+    expect(state().phase, OverlayPhase.ready);
+    expect(shell.events, ['prepare', 'locate', 'show']);
   });
 
   test('repeated selections while capturing or shown are ignored', () async {
@@ -251,17 +282,45 @@ void main() {
     expect(worker.paths, isEmpty);
   });
 
+  test('a refused capture makes the window offer Allow again', () async {
+    await container.read(appSettingsProvider.future);
+    await container
+        .read(appSettingsProvider.notifier)
+        .setScreenAccessGranted(true);
+    portal.status = ScreenCaptureStatus.ended;
+
+    await overlay().start();
+
+    expect(
+      container.read(appSettingsProvider).value!.screenAccessGranted,
+      isFalse,
+    );
+  });
+
   test('a portal failure shows a brief message, then closes', () async {
     portal.status = ScreenCaptureStatus.failed;
+    shell.placement = DisplayPlacement(
+      monitors: twoDisplays.monitors,
+      targetIndex: 1,
+    );
+    final eventsAtMessage = <String>[];
+    container.listen(selectionOverlayProvider, (_, next) {
+      if (next.phase == OverlayPhase.failed) {
+        eventsAtMessage.addAll(shell.events);
+      }
+    });
 
     await overlay().start();
     expect(state().phase, OverlayPhase.failed);
     expect(state().frame, isNull);
     expect(state().message, contains('Screen capture failed'));
+    expect(eventsAtMessage, ['prepare', 'locate'], reason: 'message first');
+    expect(shell.events, ['prepare', 'locate', 'show']);
+    expect(shell.shownDisplay, 1);
 
     await Future<void>.delayed(const Duration(milliseconds: 120));
     expect(state().phase, OverlayPhase.idle);
-    expect(shell.events, ['prepare', 'show', 'reveal', 'hide']);
+    expect(shell.events, ['prepare', 'locate', 'show', 'hide']);
   });
 
   test(
@@ -319,23 +378,55 @@ void main() {
 
     expect(state().phase, OverlayPhase.failed);
     expect(state().message, 'This display layout is not supported yet.');
+    expect(shell.events, ['prepare', 'locate', 'show']);
     expect(worker.paths, isEmpty);
   });
 
-  test(
-    'a failed placement closes the overlay and reports in the window',
-    () async {
-      shell.placementError = const OverlayPlacementException(
-        'placement_timeout',
-      );
+  test('a display that cannot be located closes the selection without showing '
+      'the overlay and reports in the window', () async {
+    shell.placementError = const OverlayPlacementException('placement_timeout');
 
-      await overlay().start();
+    await overlay().start();
 
-      expect(state().phase, OverlayPhase.idle);
-      expect(shell.events, ['prepare', 'show', 'hide', 'present']);
-      expect(container.read(selectionNoticeProvider), overlayStartNotice);
-    },
-  );
+    expect(state().phase, OverlayPhase.idle);
+    expect(shell.events, ['prepare', 'locate', 'hide', 'present']);
+    expect(container.read(selectionNoticeProvider), overlayStartNotice);
+  });
+
+  test('an overlay that cannot be shown closes the selection and discards '
+      'its frame', () async {
+    shell.showError = const OverlayPlacementException('placement_timeout');
+    OverlayFrame? published;
+    container.listen(
+      selectionOverlayProvider,
+      (_, next) => published ??= next.frame,
+    );
+
+    await overlay().start();
+
+    expect(state().phase, OverlayPhase.idle);
+    expect(shell.events, ['prepare', 'locate', 'show', 'hide', 'present']);
+    expect(container.read(selectionNoticeProvider), overlayStartNotice);
+    expect(published!.image.debugDisposed, isTrue);
+    expect(worker.paths, isEmpty);
+    expect(privateFiles(), isEmpty);
+  });
+
+  test('dismissing while the display is located cancels it and never shows '
+      'the overlay', () async {
+    shell.placementGate = Completer<DisplayPlacement>();
+    final start = overlay().start();
+    await until(() => shell.events.contains('locate'));
+
+    await overlay().dismiss();
+    await start;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    expect(state().phase, OverlayPhase.idle);
+    expect(shell.events, ['prepare', 'locate', 'hide']);
+    expect(container.read(selectionNoticeProvider), isNull);
+    expect(privateFiles(), isEmpty);
+  });
 
   test('content that never becomes ready times out', () async {
     shell.placementGate = Completer<DisplayPlacement>();
@@ -345,8 +436,22 @@ void main() {
     await start;
 
     expect(state().phase, OverlayPhase.idle);
-    expect(shell.events, ['prepare', 'show', 'hide', 'present']);
+    expect(shell.events, ['prepare', 'locate', 'hide', 'present']);
     expect(container.read(selectionNoticeProvider), overlayStartNotice);
+    expect(privateFiles(), isEmpty);
+  });
+
+  test('an overlay that never comes on screen times out', () async {
+    shell.showGate = Completer<void>();
+
+    final start = overlay().start();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    await start;
+
+    expect(state().phase, OverlayPhase.idle);
+    expect(shell.events, ['prepare', 'locate', 'show', 'hide', 'present']);
+    expect(container.read(selectionNoticeProvider), overlayStartNotice);
+    expect(worker.paths, isEmpty);
     expect(privateFiles(), isEmpty);
   });
 
@@ -357,6 +462,7 @@ void main() {
 
     expect(state().phase, OverlayPhase.failed);
     expect(state().message, 'The screenshot could not be read.');
+    expect(shell.events, ['prepare', 'locate', 'show']);
   });
 
   group('app lifecycle', () {
@@ -383,6 +489,22 @@ void main() {
 
         expect(container.read(mainWindowShownProvider), isTrue);
         expect(shell.events, ['present']);
+      },
+    );
+
+    test(
+      'opening the window from the tray paints the main screen before it maps',
+      () async {
+        await AppLifecycle(container).start();
+        container.read(mainWindowShownProvider.notifier).hidden();
+        shell.events.clear();
+
+        // A closed window keeps a transparent frame, so mapping it without
+        // switching the main screen back on shows a black window.
+        await trayActionsFor(container, select: () async {}).open();
+
+        expect(container.read(mainWindowShownProvider), isTrue);
+        expect(shell.events, ['request-present', 'present']);
       },
     );
 

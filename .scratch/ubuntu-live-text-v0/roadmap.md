@@ -108,8 +108,23 @@ flowchart LR
 - **25** Selection experience, native Ubuntu look, and accessibility:
   rectangle default, screenshot save and copy, smart detection and web search,
   Yaru look, draggable toolbar, persistent glow, accessibility must-haves.
+  Implemented; manual acceptance (real desktop, Orca) is open.
 - **26** Resident app, top-bar icon, instant open, and beta `.deb`. Runs in
-  parallel with 25; the `.deb` waits for 25's worker dependencies.
+  parallel with 25; the `.deb` waits for 25's worker dependencies. Implemented;
+  its instant-open design was superseded by 27. The `.deb` passes lintian and a
+  clean-room install, start, upgrade, remove and purge on Ubuntu 26.04
+  (`scripts/acceptance/deb-clean-room/`). Manual acceptance of the Orca tray
+  menu and a full-desktop VM install is open.
+- **27** No black frame on GNOME Wayland: the overlay finds its display with a
+  probe window, then maps fullscreen once with the frozen frame already
+  rendered ([ADR 0002](../../docs/adr/0002-overlay-maps-once-on-a-located-display.md)).
+  Implemented and confirmed on the owner's desktop; two-display and 125% runs
+  are open.
+- **28** Preferences window, automatic shortcut, and save location: one native
+  header bar with an About and Quit menu, grouped settings rows, the GNOME
+  shortcut added on first run and changeable in the window, and a save-folder
+  setting ([ADR 0003](../../docs/adr/0003-app-sets-its-own-shortcut-on-first-run.md)).
+  Implemented; manual check on the owner's desktop is open.
 
 ## V0 boundaries
 
@@ -122,3 +137,10 @@ flowchart LR
 - Continuous video analysis, persistent history, semantic object naming,
   translation, production packaging, and upstream integration remain outside
   V0.
+
+## Release 0.1.0 (first public beta)
+
+Licence chosen ([ADR 0004](../../docs/adr/0004-apache-2-licence.md)), package
+polished and checked on a clean Ubuntu, repository prepared for the public.
+Steps to publish are in [docs/packaging.md](../../docs/packaging.md#releasing).
+Known limits stay listed in the README's Project status.

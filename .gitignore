@@ -43,3 +43,7 @@ dist/
 .env.*
 !.env.example
 *.log
+
+# Agent skills are installed from skills-lock.json by the author's tooling; they are
+# third-party (MIT) and not part of Kiriglyph.
+.agents/skills/

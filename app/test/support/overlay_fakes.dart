@@ -37,8 +37,15 @@ class FakeShell implements AppShell {
   DisplayPlacement placement = twoDisplays;
   Object? placementError;
 
-  /// When set, `showOverlay` waits for it; `hideOverlay` cancels it.
+  /// When set, `locateDisplay` waits for it; `hideOverlay` cancels it.
   Completer<DisplayPlacement>? placementGate;
+
+  /// The display index of the last `showOverlay`.
+  int? shownDisplay;
+  Object? showError;
+
+  /// When set, `showOverlay` waits for it; `hideOverlay` cancels it.
+  Completer<void>? showGate;
 
   int count(String event) => events.where((e) => e == event).length;
 
@@ -48,6 +55,14 @@ class FakeShell implements AppShell {
   @override
   Future<void> present() async => events.add('present');
 
+  /// Like the native runner: ask Dart to paint the main screen, which then
+  /// maps the window with `present`.
+  @override
+  Future<void> requestPresent() async {
+    events.add('request-present');
+    await handler?.call(AppCommand.presented);
+  }
+
   @override
   Future<bool> prepareCapture() async {
     events.add('prepare');
@@ -55,8 +70,8 @@ class FakeShell implements AppShell {
   }
 
   @override
-  Future<DisplayPlacement> showOverlay() async {
-    events.add('show');
+  Future<DisplayPlacement> locateDisplay() async {
+    events.add('locate');
     final gate = placementGate;
     if (gate != null) {
       return gate.future;
@@ -69,14 +84,25 @@ class FakeShell implements AppShell {
   }
 
   @override
-  Future<void> revealOverlay() async => events.add('reveal');
+  Future<void> showOverlay(int display) async {
+    events.add('show');
+    shownDisplay = display;
+    await showGate?.future;
+    final error = showError;
+    if (error != null) {
+      throw error;
+    }
+  }
 
+  /// Like the native runner, hiding cancels a pending locate or show.
   @override
   Future<void> hideOverlay() async {
     events.add('hide');
-    final gate = placementGate;
-    if (gate != null && !gate.isCompleted) {
-      gate.completeError(const OverlayPlacementException('cancelled'));
+    for (final gate in <Completer<Object?>?>[placementGate, showGate]) {
+      if (gate != null && !gate.isCompleted) {
+        gate.future.ignore();
+        gate.completeError(const OverlayPlacementException('cancelled'));
+      }
     }
   }
 

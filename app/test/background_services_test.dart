@@ -29,7 +29,7 @@ void main() {
       service = LaunchAtLoginService(
         configHome: config.path,
         systemEntryPath: systemEntry.path,
-        launcherPath: '/home/neo/.local/bin/kiriglyph',
+        launcherPath: '/home/user/.local/bin/kiriglyph',
       );
     });
 
@@ -44,7 +44,7 @@ void main() {
       expect(file.existsSync(), isTrue);
       expect(
         file.readAsStringSync(),
-        contains('Exec=/home/neo/.local/bin/kiriglyph --background'),
+        contains('Exec=/home/user/.local/bin/kiriglyph --background'),
       );
       expect(file.readAsStringSync(), isNot(contains('Hidden=true')));
       expect(await service.isEnabled(), isTrue);

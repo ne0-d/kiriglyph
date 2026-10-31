@@ -14,6 +14,7 @@ import 'package:kiriglyph/ocr/ocr_result.dart';
 import 'package:kiriglyph/overlay/display_layout.dart';
 import 'package:kiriglyph/overlay/overlay_frame.dart';
 import 'package:kiriglyph/providers.dart';
+import 'package:kiriglyph/settings/app_settings.dart';
 import 'package:kiriglyph/segmentation/subject_segmenter.dart';
 import 'package:kiriglyph/selection/selection_intent.dart';
 
@@ -24,7 +25,7 @@ enum OverlayPhase {
   /// The window is hidden while the silent capture runs.
   capturing,
 
-  /// The overlay window is mapped, transparent, and finding its display.
+  /// The display under the pointer is being found; nothing is shown yet.
   placing,
 
   /// The frozen frame is shown while OCR runs.
@@ -116,6 +117,9 @@ const _captureFailedMessage = 'Screen capture failed. Try again.';
 class SelectionOverlayController extends Notifier<SelectionOverlayState> {
   int _operation = 0;
   SessionImage? _image;
+
+  /// Native overlay work has started (finding the display or showing the
+  /// window), so leaving must hide the overlay.
   bool _windowShown = false;
   bool _overlayRevealed = false;
   Timer? _contentTimer;
@@ -176,6 +180,10 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
         capture.status == ScreenCaptureStatus.cancelled ||
         capture.status == ScreenCaptureStatus.denied) {
       ref.read(timingLogProvider).finish(TimingOutcome.permissionRequired);
+      // The setup window must offer the Allow button again.
+      unawaited(
+        ref.read(appSettingsProvider.notifier).setScreenAccessGranted(false),
+      );
       await _openOnboarding(permissionNotice);
       return true;
     }
@@ -291,7 +299,7 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       return capture;
     }, onError: (_) => null);
 
-    final placement = await _place(operation);
+    final placement = await _locate(operation);
     if (placement == null) {
       unawaited(decoding.then((capture) => capture?.dispose()));
       return;
@@ -302,7 +310,11 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       return;
     }
     if (decoded == null) {
-      _fail(operation, _captureMessages[ScreenCaptureStatus.unreadable]!);
+      _fail(
+        operation,
+        _captureMessages[ScreenCaptureStatus.unreadable]!,
+        placement: placement,
+      );
       return;
     }
 
@@ -317,11 +329,15 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       ref.read(timingLogProvider).mark(TimingPhase.crop);
     } on DisplayLayoutMismatch {
       decoded.dispose();
-      _fail(operation, _layoutMessage);
+      _fail(operation, _layoutMessage, placement: placement);
       return;
     } catch (_) {
       decoded.dispose();
-      _fail(operation, _captureMessages[ScreenCaptureStatus.unreadable]!);
+      _fail(
+        operation,
+        _captureMessages[ScreenCaptureStatus.unreadable]!,
+        placement: placement,
+      );
       return;
     }
     // The spanning capture of every display is no longer needed.
@@ -330,13 +346,14 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       frame.dispose();
       return;
     }
-    _contentTimer?.cancel();
+    // The overlay's first buffer is the last frame Flutter rendered, so the
+    // frozen frame is published before the window is shown.
     state = SelectionOverlayState(
       phase: OverlayPhase.recognizing,
       frame: frame,
     );
-    if (!await _revealOverlay(operation)) {
-      frame.dispose();
+    if (!await _showOverlay(operation, placement)) {
+      // Leaving the overlay disposed the published frame.
       return;
     }
     await _recognize(operation, codec, frame);
@@ -441,20 +458,20 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     );
   }
 
-  /// Shows the transparent overlay window and waits for its display. Gives up
-  /// after [OverlayTimeouts.content] if no frame could be shown by then.
-  Future<DisplayPlacement?> _place(int operation) async {
+  /// Finds the display under the pointer; nothing is shown yet. Gives up
+  /// after [OverlayTimeouts.content] if the overlay is not on screen by then.
+  Future<DisplayPlacement?> _locate(int operation) async {
     state = const SelectionOverlayState(phase: OverlayPhase.placing);
     _windowShown = true;
     _overlayRevealed = false;
     _contentTimer?.cancel();
     _contentTimer = Timer(ref.read(overlayTimeoutsProvider).content, () {
-      if (operation == _operation && state.phase == OverlayPhase.placing) {
+      if (operation == _operation && state.isActive && !_overlayRevealed) {
         unawaited(_abandon());
       }
     });
     try {
-      final placement = await _shell.showOverlay();
+      final placement = await _shell.locateDisplay();
       ref.read(timingLogProvider).mark(TimingPhase.map);
       ref
           .read(timingLogProvider)
@@ -474,13 +491,16 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
 
   /// A failure the user can read on screen; the overlay closes by itself.
   Future<void> _failWithoutFrame(int operation, String message) async {
-    if (await _place(operation) == null || operation != _operation) {
+    final placement = await _locate(operation);
+    if (placement == null || operation != _operation) {
       return;
     }
-    _fail(operation, message);
+    _fail(operation, message, placement: placement);
   }
 
-  void _fail(int operation, String message) {
+  /// Shows [message] until the overlay closes by itself. An overlay not on
+  /// screen yet is shown on [placement]'s display, after the message is set.
+  void _fail(int operation, String message, {DisplayPlacement? placement}) {
     _contentTimer?.cancel();
     ref.read(timingLogProvider).finish(TimingOutcome.failed);
     state = SelectionOverlayState(
@@ -488,8 +508,8 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
       frame: state.frame,
       message: message,
     );
-    if (_windowShown && !_overlayRevealed) {
-      unawaited(_revealOverlay(operation));
+    if (placement != null && !_overlayRevealed) {
+      unawaited(_showOverlay(operation, placement));
     }
     _failureTimer?.cancel();
     _failureTimer = Timer(ref.read(overlayTimeoutsProvider).failureMessage, () {
@@ -507,21 +527,28 @@ class SelectionOverlayController extends Notifier<SelectionOverlayState> {
     await _present();
   }
 
-  Future<bool> _revealOverlay(int operation) async {
-    if (!_windowShown || _overlayRevealed) {
-      return operation == _operation;
-    }
+  /// Shows the fullscreen overlay on [placement]'s target display. The state
+  /// must already hold what it shows: GNOME paints black behind a fullscreen
+  /// window until its first buffer, the last frame Flutter rendered, covers
+  /// the display. Returns whether [operation] is on screen; abandons it if the
+  /// overlay could not be shown.
+  Future<bool> _showOverlay(int operation, DisplayPlacement placement) async {
+    _windowShown = true;
     try {
-      await _shell.revealOverlay();
-      ref.read(timingLogProvider).mark(TimingPhase.reveal);
-      _overlayRevealed = true;
+      await _shell.showOverlay(placement.targetIndex);
     } catch (_) {
       if (operation == _operation) {
         await _abandon();
       }
       return false;
     }
-    return operation == _operation;
+    if (operation != _operation) {
+      return false;
+    }
+    _contentTimer?.cancel();
+    ref.read(timingLogProvider).mark(TimingPhase.reveal);
+    _overlayRevealed = true;
+    return true;
   }
 
   Future<void> _openOnboarding(String notice) async {

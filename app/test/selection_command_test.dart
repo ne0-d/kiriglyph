@@ -69,8 +69,8 @@ void main() {
 
   test('the selection command uses the installed launcher', () {
     expect(
-      selectionCommand(environment: {'HOME': '/home/neo'}),
-      '/home/neo/.local/bin/kiriglyph --select',
+      selectionCommand(environment: {'HOME': '/home/user'}),
+      '/home/user/.local/bin/kiriglyph --select',
     );
     expect(
       selectionCommand(environment: {'HOME': "/home/o'neil x"}),
@@ -82,7 +82,7 @@ void main() {
     expect(
       selectionCommand(
         environment: {
-          'HOME': '/home/neo',
+          'HOME': '/home/user',
           'KIRIGLYPH_LAUNCHER': '/usr/bin/kiriglyph',
         },
       ),

@@ -7,6 +7,49 @@ import 'package:kiriglyph/tray/status_notifier.dart';
 
 void main() {
   test(
+    'the tray item is named for its process, not with a shared name',
+    () async {
+      final bus = _FakeStatusNotifierBus()
+        ..ownedNames.add(kdeStatusNotifierWatcher);
+      final service = StatusNotifierService(bus: bus, actions: _actions());
+
+      await service.start(launchAtLogin: false, paused: false);
+
+      // A fixed name let the host's late clean-up of an old instance delete the
+      // registration of a new one that reused the name after a quick restart.
+      expect(
+        bus.claimedNames.single,
+        matches(RegExp(r'^org\.freedesktop\.StatusNotifierItem-\d+-1$')),
+      );
+      expect(bus.registeredServices, bus.claimedNames);
+      expect(statusNotifierItemBusNameFor(4242), endsWith('-4242-1'));
+    },
+  );
+
+  test('two instances never share a tray name', () async {
+    final first = _FakeStatusNotifierBus()
+      ..ownedNames.add(kdeStatusNotifierWatcher);
+    final second = _FakeStatusNotifierBus()
+      ..ownedNames.add(kdeStatusNotifierWatcher);
+
+    await StatusNotifierService(
+      bus: first,
+      actions: _actions(),
+      itemName: statusNotifierItemBusNameFor(100),
+    ).start(launchAtLogin: false, paused: false);
+    await StatusNotifierService(
+      bus: second,
+      actions: _actions(),
+      itemName: statusNotifierItemBusNameFor(101),
+    ).start(launchAtLogin: false, paused: false);
+
+    expect(
+      first.registeredServices.single,
+      isNot(second.registeredServices.single),
+    );
+  });
+
+  test(
     'registers when a watcher exists and re-registers when one appears',
     () async {
       final bus = _FakeStatusNotifierBus();
@@ -119,6 +162,8 @@ TrayActions _actions([List<String>? calls]) {
 class _FakeStatusNotifierBus implements StatusNotifierBus {
   final ownedNames = <String>{};
   final registeredItems = <String>[];
+  final claimedNames = <String>[];
+  final registeredServices = <String>[];
   final objects = <DBusObject>[];
   final _watchers = StreamController<String>.broadcast();
 
@@ -131,7 +176,7 @@ class _FakeStatusNotifierBus implements StatusNotifierBus {
   Future<bool> nameHasOwner(String name) async => ownedNames.contains(name);
 
   @override
-  Future<void> ownName(String name) async {}
+  Future<void> ownName(String name) async => claimedNames.add(name);
 
   @override
   Future<void> registerObject(DBusObject object) async => objects.add(object);
@@ -146,6 +191,7 @@ class _FakeStatusNotifierBus implements StatusNotifierBus {
     String service,
   ) async {
     registeredItems.add(watcherName);
+    registeredServices.add(service);
   }
 
   @override

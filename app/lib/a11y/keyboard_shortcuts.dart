@@ -27,10 +27,10 @@ const keyboardShortcutGroups = <ShortcutGroup>[
   ShortcutGroup('Copy and save', [
     ShortcutEntry('Ctrl+C', 'Copy the selected text (or object image)'),
     ShortcutEntry('Ctrl+Shift+C', 'Copy the selection as an image'),
-    ShortcutEntry('Ctrl+S', 'Save the main result to Pictures'),
+    ShortcutEntry('Ctrl+S', 'Save the main result to your save folder'),
     ShortcutEntry(
       'Ctrl+Shift+S',
-      'Save as… for an object; screenshots save straight to Pictures',
+      'Save as… for an object; screenshots save straight to your save folder',
     ),
     ShortcutEntry('Ctrl+Shift+F', 'Save a screenshot of the whole display'),
   ]),

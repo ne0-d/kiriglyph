@@ -25,7 +25,7 @@ enum AppCommand {
 
 typedef AppCommandHandler = Future<void> Function(AppCommand command);
 
-/// The overlay window could not be placed on a display.
+/// The overlay's display could not be found, or the overlay not shown on it.
 class OverlayPlacementException implements Exception {
   const OverlayPlacementException(this.code);
 
@@ -46,19 +46,27 @@ abstract interface class AppShell {
   /// for a hidden window is a stale one over an opaque black background.
   Future<void> present();
 
+  /// Opens the window from inside the app, as a second launch does: native
+  /// has Dart paint the main screen first ([AppCommand.presented]) and then
+  /// maps it. Use this rather than [present], which maps whatever the hidden
+  /// window last painted, a transparent frame over black.
+  Future<void> requestPresent();
+
   /// Hides the window if it is visible, so a capture cannot contain it.
   /// Completes once it is off screen, with whether it was visible.
   Future<bool> prepareCapture();
 
-  /// Shows the window as a borderless fullscreen overlay on the display under
-  /// the pointer. Flutter's view stays hidden and the window is a transparent
-  /// GTK surface until [revealOverlay]. Completes with the display it landed
-  /// on; throws [OverlayPlacementException].
-  Future<DisplayPlacement> showOverlay();
+  /// Finds the display under the pointer with a small transparent probe
+  /// window; the overlay itself is not shown. Completes with every display
+  /// and the one under the pointer; throws [OverlayPlacementException].
+  Future<DisplayPlacement> locateDisplay();
 
-  /// Shows Flutter's view in the already-mapped overlay, after Flutter has
-  /// painted the frozen frame and native GTK has presented paint cycles.
-  Future<void> revealOverlay();
+  /// Shows the window as a borderless fullscreen overlay on [display], the
+  /// index of a monitor from [locateDisplay]. GNOME paints black behind a
+  /// fullscreen window until one opaque buffer covers the display, so the
+  /// window maps once, after Flutter has rendered what it should show.
+  /// Completes once it is on screen; throws [OverlayPlacementException].
+  Future<void> showOverlay(int display);
 
   /// Hides the overlay and restores the normal window for next time.
   Future<void> hideOverlay();
@@ -123,6 +131,15 @@ class PlatformAppShell implements AppShell {
   }
 
   @override
+  Future<void> requestPresent() async {
+    try {
+      await _channel.invokeMethod<void>('requestPresent');
+    } on MissingPluginException {
+      // Not running under the Kiriglyph runner.
+    }
+  }
+
+  @override
   Future<bool> prepareCapture() async {
     try {
       return await _channel.invokeMethod<bool>('prepareCapture') ?? false;
@@ -132,18 +149,8 @@ class PlatformAppShell implements AppShell {
   }
 
   @override
-  Future<DisplayPlacement> showOverlay() async {
-    // The window maps with whatever Flutter last rendered, so let the
-    // transparent overlay frame render first.
-    await _renderedFrame();
-    final Object? reply;
-    try {
-      reply = await _channel.invokeMethod<Object?>('showOverlay');
-    } on PlatformException catch (error) {
-      throw OverlayPlacementException(error.code);
-    } on MissingPluginException {
-      throw const OverlayPlacementException('unavailable');
-    }
+  Future<DisplayPlacement> locateDisplay() async {
+    final reply = await _invokeOverlay('locateDisplay');
     try {
       return DisplayPlacement.fromChannel(reply);
     } on FormatException {
@@ -152,12 +159,22 @@ class PlatformAppShell implements AppShell {
   }
 
   @override
-  Future<void> revealOverlay() async {
-    await _renderedFrame();
+  Future<void> showOverlay(int display) async {
+    // The window's first buffer is the last frame Flutter rendered. The first
+    // frame builds the overlay; the second gives it time to be rasterized.
+    for (var frame = 0; frame < 2; frame++) {
+      await _renderedFrame();
+    }
+    await _invokeOverlay('showOverlay', {'display': display});
+  }
+
+  Future<Object?> _invokeOverlay(String method, [Object? arguments]) async {
     try {
-      await _channel.invokeMethod<void>('revealOverlay');
+      return await _channel.invokeMethod<Object?>(method, arguments);
+    } on PlatformException catch (error) {
+      throw OverlayPlacementException(error.code);
     } on MissingPluginException {
-      // Not running under the Kiriglyph runner.
+      throw const OverlayPlacementException('unavailable');
     }
   }
 

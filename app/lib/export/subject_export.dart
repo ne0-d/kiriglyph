@@ -73,15 +73,19 @@ class PlatformClipboardImagePort implements ClipboardImagePort {
 }
 
 class PlatformSavePngPort implements SavePngPort {
-  PlatformSavePngPort({MethodChannel? channel})
+  PlatformSavePngPort({MethodChannel? channel, this.folder})
     : _channel = channel ?? const MethodChannel('kiriglyph/app');
 
   final MethodChannel _channel;
+
+  /// Folder the chooser opens in; null lets the runner pick Pictures.
+  final String Function()? folder;
 
   @override
   Future<SaveDestination> chooseDestination(String suggestedName) async {
     final path = await _channel.invokeMethod<String>('chooseSavePng', {
       'suggestedName': suggestedName,
+      'folder': folder?.call(),
     });
     if (path == null || path.isEmpty) {
       return const SaveDestination.cancelled();

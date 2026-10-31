@@ -27,6 +27,28 @@ Subject corpus output goes to
 real `worker.segmentation_worker` protocol and expects EfficientSAM-Ti model
 files under `KIRIGLYPH_MODELS_DIR` or `worker/.models`.
 
+## Package clean-room check
+
+Tries the built `.deb` on a clean Ubuntu without root, Docker or a VM:
+
+```bash
+./scripts/build-deb.sh
+scripts/acceptance/deb-clean-room/run.sh        # prints CLEAN ROOM PASSED
+scripts/acceptance/deb-clean-room/run.sh --clean  # deletes the sandbox
+```
+
+It unpacks the official Ubuntu base image (downloaded once, about 35 MB, and
+checked against Ubuntu's signed checksums) into
+`scripts/acceptance/output/deb-clean-room/`, enters it with a user namespace and
+`chroot`, and runs: **A** install with apt, an unresolved-library scan of every
+ELF file, model hash checks and an offline OCR read; **B** start the app on a
+virtual display, see its worker start, and quit it; **C** upgrade (keeping an
+edited conffile), remove, and purge. apt downloads the dependencies inside the
+sandbox, so it needs network access. Nothing is installed on your computer.
+
+It cannot see anything specific to the real Wayland desktop: window placement,
+the screenshot portal, the top-bar icon. Those stay manual checks.
+
 ## User-run desktop checks
 
 Resource measurement without automatic launches:

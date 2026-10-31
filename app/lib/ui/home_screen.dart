@@ -3,10 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:kiriglyph/app/window_surface.dart';
 import 'package:kiriglyph/overlay/selection_overlay.dart';
-import 'package:kiriglyph/ui/app_header.dart';
-import 'package:kiriglyph/ui/onboarding/onboarding_view.dart';
 import 'package:kiriglyph/ui/overlay/presentable_transparency.dart';
 import 'package:kiriglyph/ui/overlay/selection_overlay_screen.dart';
+import 'package:kiriglyph/ui/settings/preferences_page.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -26,13 +25,6 @@ class HomeScreen extends ConsumerWidget {
       return const PresentableTransparency();
     }
 
-    return const Scaffold(
-      body: Column(
-        children: [
-          AppHeader(),
-          Expanded(child: OnboardingView()),
-        ],
-      ),
-    );
+    return const PreferencesPage();
   }
 }

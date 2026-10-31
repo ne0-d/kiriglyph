@@ -15,8 +15,9 @@ import 'package:kiriglyph/ui/overlay/subject_mask_alpha.dart';
 import 'package:kiriglyph/ui/overlay/subject_overlay_layer.dart';
 import 'package:kiriglyph/ui/workspace/fitted_image_geometry.dart';
 
-const _screenshotPath =
-    '/home/neo/.cursor/projects/home-neo-D-personal-projects-image-segment-ai/assets/image-3a925822-7d5c-4ce8-aa46-708250fe4f96.jpg';
+/// A desktop screenshot to draw the evidence on. The test skips itself
+/// without one: set KIRIGLYPH_EVIDENCE_IMAGE to the path of a JPEG or PNG.
+final _screenshotPath = Platform.environment['KIRIGLYPH_EVIDENCE_IMAGE'] ?? '';
 const _outDir = '/tmp/kiriglyph-ui';
 const _shotKey = Key('visual-evidence-boundary');
 

@@ -72,7 +72,8 @@ stage_desktop_files() {
   install -Dm644 "$PACKAGING_DIR/linux/$APP_ID.autostart.desktop" \
     "$PKGROOT/etc/xdg/autostart/$APP_ID.desktop"
   install -d "$PKGROOT/usr/share/metainfo"
-  sed "s/@VERSION@/$VERSION/g" "$PACKAGING_DIR/linux/$APP_ID.metainfo.xml.in" \
+  sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$(date -u +%F)/g" \
+    "$PACKAGING_DIR/linux/$APP_ID.metainfo.xml.in" \
     >"$PKGROOT/usr/share/metainfo/$APP_ID.metainfo.xml"
 }
 
@@ -180,21 +181,28 @@ stage_debian_metadata() {
   local debian="$PKGROOT/DEBIAN"
   install -d "$debian"
   install -m 755 "$PACKAGING_DIR/linux/postinst" "$debian/postinst"
-  install -m 755 "$PACKAGING_DIR/linux/prerm" "$debian/prerm"
 
-  local depends
+  local depends installed_size
   depends="$(compute_depends)"
+  # apt uses this to check free disk space before it unpacks the package.
+  installed_size="$(du -sk --exclude=DEBIAN "$PKGROOT" | cut -f1)"
   cat >"$debian/control" <<EOF
 Package: $PACKAGE
 Version: $DEB_VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCHITECTURE
-Maintainer: Kiriglyph beta maintainers <noreply@example.invalid>
+Installed-Size: $installed_size
+Maintainer: Kiriglyph contributors <noreply@example.invalid>
+Homepage: https://github.com/ne0-d/kiriglyph
 Depends: $depends
-Description: Local-first screen text and subject selector
- Kiriglyph is a beta Ubuntu desktop app for selecting text and subjects from
- frozen screen pixels using the GNOME Screenshot portal and local OCR.
+Recommends: fonts-ubuntu
+Description: Select and copy text from anything on screen, locally
+ Kiriglyph freezes the screen on a keyboard shortcut. Drag over any text to
+ copy it, or click an object to cut it out as a transparent PNG.
+ .
+ Text recognition and object segmentation run on this computer, with no
+ cloud service. It needs Ubuntu with GNOME on Wayland. This is a beta release.
 EOF
 
   cat >"$debian/triggers" <<'EOF'
@@ -207,11 +215,18 @@ EOF
 }
 
 compute_depends() {
+  # Libraries the ldd scan below cannot see because they are loaded at run time:
+  # Flutter opens EGL and GLES (the app aborts at start-up without them), and the
+  # app reads GNOME's desktop settings schemas. A GNOME desktop always has all of
+  # these; naming them keeps a minimal system honest.
   local explicit=(
     "libgtk-3-0t64 | libgtk-3-0"
     "libglib2.0-0t64 | libglib2.0-0"
     "libglib2.0-bin"
     "xdg-utils"
+    "libegl1"
+    "libgles2"
+    "gsettings-desktop-schemas"
   )
   local discovered="$STAGING/discovered-depends.txt"
   : >"$discovered"
@@ -256,13 +271,31 @@ store.
 EOF
   cat >"$doc_dir/copyright" <<'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Source: local beta package
+Upstream-Name: Kiriglyph
+Source: https://github.com/ne0-d/kiriglyph
 
 Files: *
-Copyright: Kiriglyph contributors
-License: UNVERIFIED
- See NOTICE for the bundled component licence inventory.
+Copyright: 2026 Kiriglyph contributors
+License: Apache-2.0
+Comment: Bundled third-party components (the Flutter engine, the Python
+ runtime and wheels, the OCR and segmentation models) keep their own
+ licences. NOTICE lists them, and their licence texts ship with them.
+
+License: Apache-2.0
+ Licensed under the Apache License, Version 2.0. On Debian and Ubuntu systems
+ the full text is in /usr/share/common-licenses/Apache-2.0.
 EOF
+  # A native package keeps its changelog in Debian format. The release notes
+  # themselves live in CHANGELOG.md and on the GitHub release.
+  {
+    printf '%s (%s) unstable; urgency=medium\n\n' "$PACKAGE" "$DEB_VERSION"
+    printf '  * Release %s. Notes: https://github.com/ne0-d/kiriglyph/releases\n\n' "$VERSION"
+    printf ' -- Kiriglyph contributors <noreply@example.invalid>  %s\n' "$(date -R -u)"
+  } | gzip -9n >"$doc_dir/changelog.gz"
+  install -Dm644 /dev/stdin "$PKGROOT/usr/share/man/man1/$PACKAGE.1.gz" \
+    < <(gzip -9nc "$PACKAGING_DIR/linux/$PACKAGE.1")
+  install -Dm644 "$PACKAGING_DIR/linux/$PACKAGE.lintian-overrides" \
+    "$PKGROOT/usr/share/lintian/overrides/$PACKAGE"
 }
 
 build_package() {
@@ -284,11 +317,14 @@ build_package() {
   chmod 755 "$PKGROOT/usr/bin/kiriglyph" \
     "$PKGROOT/usr/lib/kiriglyph/kiriglyph" \
     "$PKGROOT/usr/lib/kiriglyph/worker-runtime/bin/python3.12" \
-    "$PKGROOT/DEBIAN/postinst" \
-    "$PKGROOT/DEBIAN/prerm"
+    "$PKGROOT/DEBIAN/postinst"
 
   local out="$DIST_DIR/${PACKAGE}_${DEB_VERSION}_${ARCHITECTURE}.deb"
   dpkg-deb --root-owner-group -Zxz --build "$PKGROOT" "$out"
+  # A fixed name, so a release can be downloaded from a permanent link:
+  # https://github.com/ne0-d/kiriglyph/releases/latest/download/kiriglyph_amd64.deb
+  cp -f "$out" "$DIST_DIR/${PACKAGE}_${ARCHITECTURE}.deb"
+  (cd "$DIST_DIR" && sha256sum "${PACKAGE}_${ARCHITECTURE}.deb" >SHA256SUMS)
   printf '%s\n' "$out"
 }
 

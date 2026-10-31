@@ -2,19 +2,24 @@
 <component type="desktop-application">
   <id>dev.kiriglyph.Kiriglyph</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>Apache-2.0</project_license>
   <name>Kiriglyph</name>
   <developer id="dev.kiriglyph">
     <name>Kiriglyph contributors</name>
   </developer>
   <summary>Select and copy text from anything on screen</summary>
   <description>
-    <p>Kiriglyph is a local-first Ubuntu desktop tool for selecting text and subjects from frozen screen pixels.</p>
-    <p>It uses the existing GNOME Screenshot portal flow and runs OCR and segmentation locally.</p>
+    <p>Kiriglyph freezes your screen on a keyboard shortcut. Drag over any text to copy it, or click an object to cut it out as a transparent PNG.</p>
+    <p>Text recognition and object segmentation run on your computer. Nothing is uploaded.</p>
   </description>
+  <url type="homepage">https://github.com/ne0-d/kiriglyph</url>
+  <url type="bugtracker">https://github.com/ne0-d/kiriglyph/issues</url>
   <launchable type="desktop-id">dev.kiriglyph.Kiriglyph.desktop</launchable>
   <provides>
     <binary>kiriglyph</binary>
   </provides>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
   <content_rating type="oars-1.1"/>
 </component>

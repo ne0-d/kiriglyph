@@ -353,6 +353,7 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const Key('selection-notice')), findsOneWidget);
-    expect(find.text('Enable instant capture'), findsOneWidget);
+    expect(find.byKey(const Key('enable-instant-capture')), findsOneWidget);
+    expect(find.text('Allow'), findsOneWidget);
   });
 }

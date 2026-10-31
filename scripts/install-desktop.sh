@@ -145,10 +145,11 @@ Kiriglyph is installed and running in the background.
   Autostart:  $AUTOSTART_FILE
 
 Next steps:
-  1. Open Kiriglyph from the app grid and enable instant capture once.
-     GNOME asks for screen access only while the Kiriglyph window is focused.
-  2. Add a GNOME custom shortcut (Settings > Keyboard > View and Customize
-     Shortcuts > Custom Shortcuts) with this command:
+  1. Open Kiriglyph from the app grid. It adds its own GNOME shortcut
+     (Ctrl+Super+T, or the next free choice) that runs:
        $LAUNCHER --select
+     and asks for screen access once. GNOME asks only while the Kiriglyph
+     window is focused.
+  2. Change the shortcut or the save folder any time in the Kiriglyph window.
   3. Optional Subject mode models: run (cd "$WORKER_ROOT" && ../.tools/uv-bin/uv run --locked kiriglyph-fetch-models).
 EOF

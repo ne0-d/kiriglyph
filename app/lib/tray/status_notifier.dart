@@ -3,18 +3,26 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:io' show pid;
 
 import 'package:dbus/dbus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:kiriglyph/app/app_identity.dart';
 import 'package:kiriglyph/app/app_shell.dart';
 import 'package:kiriglyph/background/autostart.dart';
 import 'package:kiriglyph/background/shortcut_pause.dart';
 
 const kdeStatusNotifierWatcher = 'org.kde.StatusNotifierWatcher';
 const canonicalStatusNotifierWatcher = 'com.canonical.StatusNotifierWatcher';
-const statusNotifierItemBusName = '$kiriglyphAppId.StatusNotifierItem';
+
+/// The bus name this process registers its tray item under. It is unique to
+/// the process, the way other tray apps name theirs. A fixed name let the tray
+/// host's late clean-up of an old instance delete the entry of a new instance
+/// that had registered the same name a moment earlier, so the icon vanished
+/// after a quick restart.
+String statusNotifierItemBusNameFor(int processId) =>
+    'org.freedesktop.StatusNotifierItem-$processId-1';
+
 const statusNotifierItemPath = '/StatusNotifierItem';
 const dbusMenuPath = '/MenuBar';
 
@@ -184,14 +192,17 @@ class StatusNotifierService {
     required StatusNotifierBus bus,
     required TrayActions actions,
     TrayState initialState = const TrayState(),
+    String? itemName,
   }) : _bus = bus,
        _actions = actions,
+       _itemName = itemName ?? statusNotifierItemBusNameFor(pid),
        _stateController = StreamController<TrayState>.broadcast() {
     _state = initialState;
   }
 
   final StatusNotifierBus _bus;
   final TrayActions _actions;
+  final String _itemName;
   final StreamController<TrayState> _stateController;
   late TrayState _state;
   late final _StatusNotifierItemObject _item = _StatusNotifierItemObject(this);
@@ -282,7 +293,7 @@ class StatusNotifierService {
     if (_registeredObjects) {
       return;
     }
-    await _bus.ownName(statusNotifierItemBusName);
+    await _bus.ownName(_itemName);
     await _bus.registerObject(_item);
     await _bus.registerObject(_menu);
     _registeredObjects = true;
@@ -294,7 +305,7 @@ class StatusNotifierService {
       _setState(_state.copyWith(host: TrayHostState.missing));
       return;
     }
-    await _bus.registerStatusNotifierItem(watcher, statusNotifierItemBusName);
+    await _bus.registerStatusNotifierItem(watcher, _itemName);
     _setState(_state.copyWith(host: TrayHostState.available));
   }
 
@@ -482,21 +493,31 @@ final statusNotifierServiceProvider = Provider<StatusNotifierService>((ref) {
   throw UnimplementedError('StatusNotifierService is created by AppLifecycle.');
 });
 
+/// What the tray menu does, wired to the app.
+TrayActions trayActionsFor(
+  ProviderContainer container, {
+  required Future<void> Function() select,
+}) {
+  return TrayActions(
+    select: select,
+    // Not `present`: a window the user closed has its main screen switched
+    // off, and only the native request switches it back on before mapping.
+    open: container.read(appShellProvider).requestPresent,
+    setLaunchAtLogin: (enabled) =>
+        container.read(launchAtLoginProvider.notifier).setEnabled(enabled),
+    setPaused: (paused) async =>
+        container.read(shortcutPauseProvider.notifier).setPaused(paused),
+    quit: container.read(appShellProvider).requestQuit,
+  );
+}
+
 Future<StatusNotifierService> startStatusNotifier({
   required ProviderContainer container,
   required Future<void> Function() select,
 }) async {
   final service = StatusNotifierService(
     bus: container.read(statusNotifierBusProvider),
-    actions: TrayActions(
-      select: select,
-      open: container.read(appShellProvider).present,
-      setLaunchAtLogin: (enabled) =>
-          container.read(launchAtLoginProvider.notifier).setEnabled(enabled),
-      setPaused: (paused) async =>
-          container.read(shortcutPauseProvider.notifier).setPaused(paused),
-      quit: container.read(appShellProvider).requestQuit,
-    ),
+    actions: trayActionsFor(container, select: select),
     initialState: container.read(trayStateProvider),
   );
   container.listen(trayStateProvider, (_, next) {

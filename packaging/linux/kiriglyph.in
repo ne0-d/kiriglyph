@@ -55,8 +55,12 @@ setup_shortcut() {
   cat <<EOF
 Kiriglyph setup
 
+Kiriglyph sets its own shortcut the first time it opens, and its window shows
+and changes it. This command is the terminal fallback that creates the same
+GNOME custom shortcut by hand.
+
 1. Open Kiriglyph once from the app grid and allow screen access when GNOME asks.
-2. Add a GNOME custom shortcut:
+2. The GNOME custom shortcut:
    Name:    Kiriglyph selection
    Command: ${command}
    Shortcut: Ctrl+Super+T
@@ -68,7 +72,7 @@ EOF
     return 0
   fi
 
-  printf 'Create that GNOME custom shortcut now? [y/N] '
+  printf 'Create that GNOME custom shortcut now (it replaces the current Kiriglyph one)? [y/N] '
   read answer || answer=
   case "${answer}" in
     y|Y|yes|YES) ;;
